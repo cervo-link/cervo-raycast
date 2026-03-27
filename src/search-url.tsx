@@ -94,10 +94,7 @@ export default function Command() {
             accessories={[{ text: relativeTime(entry.created_at) }]}
             actions={
               <ActionPanel>
-                <Action.OpenInBrowser
-                  url={entry.url}
-                  onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined}
-                />
+                <Action.OpenInBrowser url={entry.url} onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined} />
                 <Action.CopyToClipboard
                   content={entry.url}
                   shortcut={Keyboard.Shortcut.Common.Copy}

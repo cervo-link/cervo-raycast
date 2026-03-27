@@ -12,10 +12,7 @@ export function normalizeUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  const withScheme =
-    trimmed.startsWith("http://") || trimmed.startsWith("https://")
-      ? trimmed
-      : `https://${trimmed}`;
+  const withScheme = trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
 
   let parsed: URL;
   try {
@@ -37,9 +34,7 @@ export function normalizeUrl(raw: string): string | null {
 
   if (host !== "localhost") {
     const parts = host.split(".");
-    const valid = parts.every(
-      (part) => part.length > 0 && /^[a-zA-Z0-9-]+$/.test(part)
-    );
+    const valid = parts.every((part) => part.length > 0 && /^[a-zA-Z0-9-]+$/.test(part));
     if (!valid) return null;
   }
 
@@ -53,9 +48,5 @@ export function normalizeUrl(raw: string): string | null {
 export function looksLikeUrl(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  return (
-    trimmed.startsWith("http://") ||
-    trimmed.startsWith("https://") ||
-    /^[a-zA-Z0-9-]+\.[a-zA-Z]/.test(trimmed)
-  );
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://") || /^[a-zA-Z0-9-]+\.[a-zA-Z]/.test(trimmed);
 }

@@ -1,13 +1,4 @@
-import {
-  Form,
-  ActionPanel,
-  Action,
-  showToast,
-  Toast,
-  Clipboard,
-  popToRoot,
-  getPreferenceValues,
-} from "@raycast/api";
+import { Form, ActionPanel, Action, showToast, Toast, Clipboard, popToRoot, getPreferenceValues } from "@raycast/api";
 import { useState } from "react";
 import { saveUrl } from "./lib/db";
 import { normalizeUrl } from "./lib/url";
