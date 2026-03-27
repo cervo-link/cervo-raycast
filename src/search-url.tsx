@@ -3,6 +3,7 @@ import {
   ActionPanel,
   Action,
   Icon,
+  Color,
   confirmAlert,
   Alert,
   showToast,
@@ -26,6 +27,8 @@ import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
 import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
 
+type ItemStatus = "ready" | "processing" | "local";
+
 interface DisplayItem {
   key: string;
   url: string;
@@ -36,10 +39,36 @@ interface DisplayItem {
   matchedBecause?: string;
   localId?: number;
   source: "local" | "api";
+  status: ItemStatus;
 }
 
-function localToDisplayItem(entry: UrlEntry): DisplayItem {
+function getStatusColor(status: ItemStatus): Color {
+  switch (status) {
+    case "ready":
+      return Color.Green;
+    case "processing":
+      return Color.Yellow;
+    case "local":
+      return Color.SecondaryText;
+  }
+}
+
+function getStatusIcon(status: ItemStatus): { source: Icon; tintColor: Color } {
+  return { source: Icon.CircleFilled, tintColor: getStatusColor(status) };
+}
+
+function localToDisplayItem(entry: UrlEntry, apiConfigured: boolean): DisplayItem {
   const tags = entry.tags ? entry.tags.split(",").filter(Boolean) : undefined;
+  const hasEnrichedData = !!entry.title;
+  let status: ItemStatus;
+  if (hasEnrichedData) {
+    status = "ready";
+  } else if (apiConfigured) {
+    status = "processing";
+  } else {
+    status = "local";
+  }
+
   return {
     key: `local-${entry.id}`,
     url: entry.url,
@@ -49,6 +78,7 @@ function localToDisplayItem(entry: UrlEntry): DisplayItem {
     timeText: relativeTime(entry.created_at),
     localId: entry.id,
     source: "local",
+    status,
   };
 }
 
@@ -62,6 +92,7 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
     timeText: relativeTime(bookmark.createdAt),
     matchedBecause: bookmark.matchedBecause,
     source: "api",
+    status: "ready",
   };
 }
 
@@ -221,7 +252,8 @@ export default function Command() {
     }
   }
 
-  const localItems = (data || []).map(localToDisplayItem);
+  const apiConfigured = isApiConfigured();
+  const localItems = (data || []).map((entry) => localToDisplayItem(entry, apiConfigured));
   const items = searchText.trim() ? mergeAndEnrich(localItems, apiResults) : localItems;
 
   return (
@@ -239,8 +271,9 @@ export default function Command() {
         items.map((item) => (
           <List.Item
             key={item.key}
+            icon={getStatusIcon(item.status)}
             title={item.title}
-            accessories={[{ text: item.timeText }]}
+            accessories={[{ tag: { value: item.status, color: getStatusColor(item.status) } }, { text: item.timeText }]}
             detail={
               <List.Item.Detail
                 markdown={buildDetailMarkdown(item)}
