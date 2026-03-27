@@ -133,6 +133,21 @@ export function enrichUrl(
   );
 }
 
+/**
+ * Assign all URLs with no workspace to the given workspace.
+ * Also dedupes: if a URL already exists in the target workspace, delete the orphan.
+ */
+export function migrateOrphanedUrls(workspaceId: string): void {
+  initDatabase();
+  const escaped = workspaceId.replace(/'/g, "''");
+  // Delete orphans that already exist in the target workspace
+  runSQL(
+    `DELETE FROM urls WHERE (workspace_id IS NULL OR workspace_id = '') AND url IN (SELECT url FROM urls WHERE workspace_id = '${escaped}')`,
+  );
+  // Assign remaining orphans
+  runSQL(`UPDATE urls SET workspace_id = '${escaped}' WHERE workspace_id IS NULL OR workspace_id = ''`);
+}
+
 export function deleteUrl(id: number): void {
   initDatabase();
   runSQL(`DELETE FROM urls WHERE id = ${id}`);

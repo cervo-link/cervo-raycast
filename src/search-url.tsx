@@ -17,7 +17,15 @@ import {
 } from "@raycast/api";
 import { useSQL } from "@raycast/utils";
 import { useEffect, useRef, useState } from "react";
-import { getDbPath, initDatabase, deleteUrl, saveUrl, enrichUrl, buildSearchQuery } from "./lib/db";
+import {
+  getDbPath,
+  initDatabase,
+  deleteUrl,
+  saveUrl,
+  enrichUrl,
+  buildSearchQuery,
+  migrateOrphanedUrls,
+} from "./lib/db";
 import {
   apiSaveBookmark,
   apiSearchBookmarks,
@@ -317,11 +325,17 @@ export default function Command() {
     }
   }
 
-  // Fetch workspaces on load (don't set selectedWorkspaceId -- let storeValue handle it via onChange)
+  // Fetch workspaces on load and migrate orphaned URLs
+  const orphansMigrated = useRef(false);
   useEffect(() => {
     if (!apiConfigured) return;
     apiFetchWorkspaces().then((ws) => {
       setWorkspaces(ws);
+      // Assign orphaned URLs (no workspace) to the first workspace
+      if (!orphansMigrated.current && ws.length > 0) {
+        orphansMigrated.current = true;
+        migrateOrphanedUrls(ws[0].id);
+      }
     });
   }, []);
 
