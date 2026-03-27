@@ -44,6 +44,7 @@ interface DisplayItem {
   matchedBecause?: string;
   localId?: number;
   apiBookmarkId?: string;
+  workspaceId?: string;
   source: "local" | "api";
   status: ItemStatus;
 }
@@ -96,6 +97,7 @@ function localToDisplayItem(entry: UrlEntry, apiConfigured: boolean): DisplayIte
     tags,
     timeText: relativeTime(entry.created_at),
     localId: entry.id,
+    workspaceId: entry.workspace_id || undefined,
     source: "local",
     status,
   };
@@ -136,6 +138,7 @@ function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): Dis
         apiMatch.tags,
         apiMatch.status,
         apiMatch.apiBookmarkId,
+        local.workspaceId,
       );
       return {
         ...local,
@@ -326,7 +329,10 @@ export default function Command() {
     });
   }, []);
 
-  const query = buildSearchQuery(searchText);
+  const query = buildSearchQuery(
+    searchText,
+    isAllWorkspaces ? workspaces.map((ws) => ws.id) : selectedWorkspaceId || undefined,
+  );
   const { data, isLoading, revalidate } = useSQL<UrlEntry>(getDbPath(), query);
 
   // Auto-save clipboard URL on launch
@@ -338,17 +344,17 @@ export default function Command() {
       const text = await Clipboard.readText();
       if (!text || !looksLikeUrl(text)) return;
 
-      const result = saveUrl(text);
+      const result = saveUrl(text, defaultWorkspaceId);
       if (result.type === "saved") {
         const host = new URL(result.url).hostname;
         await showToast({ style: Toast.Style.Success, title: "Saved from clipboard", message: host });
         if (prefs.clearClipboardAfterSave) {
           await Clipboard.clear();
         }
-        if (selectedWorkspaceId) {
+        if (defaultWorkspaceId) {
           const apiBookmarkId = await apiSaveBookmark(result.url, defaultWorkspaceId);
           if (apiBookmarkId) {
-            enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+            enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId, defaultWorkspaceId);
           }
         }
         revalidate();
@@ -384,13 +390,14 @@ export default function Command() {
             match.tags,
             match.status,
             match.id,
+            entry.workspace_id || undefined,
           );
           updated = true;
           if (match.status === "submitted" || match.status === "processing") {
             stillProcessing = true;
           }
         } else if (pollCount.current >= 6) {
-          enrichUrl(entry.url, undefined, undefined, undefined, "failed");
+          enrichUrl(entry.url, undefined, undefined, undefined, "failed", undefined, entry.workspace_id || undefined);
           updated = true;
         } else {
           stillProcessing = true;
@@ -442,17 +449,17 @@ export default function Command() {
   }, [searchText, selectedWorkspaceId]);
 
   async function handleSaveFromSearch(url: string) {
-    const result = saveUrl(url);
+    const result = saveUrl(url, defaultWorkspaceId);
     if (result.type === "saved") {
       const host = new URL(result.url).hostname;
       await showToast({ style: Toast.Style.Success, title: "Link saved", message: host });
       if (prefs.clearClipboardAfterSave) {
         await Clipboard.clear();
       }
-      if (selectedWorkspaceId) {
+      if (defaultWorkspaceId) {
         const apiBookmarkId = await apiSaveBookmark(result.url, defaultWorkspaceId);
         if (apiBookmarkId) {
-          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId, defaultWorkspaceId);
         }
       }
       revalidate();
@@ -467,7 +474,7 @@ export default function Command() {
     if (!defaultWorkspaceId) return;
     await showToast({ style: Toast.Style.Animated, title: "Reprocessing...", message: item.url });
     if (item.localId) {
-      enrichUrl(item.url, undefined, undefined, undefined, "processing");
+      enrichUrl(item.url, undefined, undefined, undefined, "processing", undefined, item.workspaceId);
     }
     revalidate();
 

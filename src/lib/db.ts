@@ -11,11 +11,6 @@ export function getDbPath(): string {
   return DB_PATH;
 }
 
-/**
- * Run a write (or read) SQL query using sqlite3 CLI directly.
- * executeSQL from @raycast/utils opens databases read-only,
- * so we need this for CREATE TABLE, INSERT, DELETE operations.
- */
 function runSQL<T = Record<string, unknown>>(query: string): T[] {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const result = execFileSync("/usr/bin/sqlite3", ["-json", DB_PATH, query], {
@@ -34,18 +29,28 @@ export function initDatabase(): void {
   runSQL(`
     CREATE TABLE IF NOT EXISTS urls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      url TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      workspace_id TEXT,
       title TEXT,
       description TEXT,
       tags TEXT,
       api_status TEXT,
       api_bookmark_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(url, workspace_id)
     );
     CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_urls_workspace ON urls(workspace_id);
   `);
   // Migrate: add columns if they don't exist (for existing databases)
-  const migrations = ["title TEXT", "description TEXT", "tags TEXT", "api_status TEXT", "api_bookmark_id TEXT"];
+  const migrations = [
+    "title TEXT",
+    "description TEXT",
+    "tags TEXT",
+    "api_status TEXT",
+    "api_bookmark_id TEXT",
+    "workspace_id TEXT",
+  ];
   for (const col of migrations) {
     try {
       runSQL(`ALTER TABLE urls ADD COLUMN ${col};`);
@@ -53,10 +58,21 @@ export function initDatabase(): void {
       /* column already exists */
     }
   }
+  // Migrate unique constraint: drop old url-only unique index if it exists
+  try {
+    runSQL(`DROP INDEX IF EXISTS sqlite_autoindex_urls_1;`);
+  } catch {
+    /* ignore */
+  }
+  try {
+    runSQL(`CREATE UNIQUE INDEX IF NOT EXISTS idx_urls_url_workspace ON urls(url, workspace_id);`);
+  } catch {
+    /* already exists */
+  }
   dbInitialized = true;
 }
 
-export function saveUrl(raw: string): SaveResult {
+export function saveUrl(raw: string, workspaceId?: string): SaveResult {
   const normalized = normalizeUrl(raw);
   if (!normalized) {
     return { type: "invalid" };
@@ -65,18 +81,19 @@ export function saveUrl(raw: string): SaveResult {
   initDatabase();
 
   const escaped = normalized.replace(/'/g, "''");
+  const wsId = workspaceId ? `'${workspaceId.replace(/'/g, "''")}'` : "NULL";
+  const wsCondition = workspaceId ? `workspace_id = '${workspaceId.replace(/'/g, "''")}'` : "workspace_id IS NULL";
 
-  // Try to insert; INSERT OR IGNORE silently skips duplicates
-  runSQL(`INSERT OR IGNORE INTO urls (url) VALUES ('${escaped}')`);
+  runSQL(`INSERT OR IGNORE INTO urls (url, workspace_id) VALUES ('${escaped}', ${wsId})`);
 
-  // Check if this URL exists (either just inserted or already existed)
-  const rows = runSQL<{ id: number; url: string }>(`SELECT id, url FROM urls WHERE url = '${escaped}'`);
+  const rows = runSQL<{ id: number; url: string }>(
+    `SELECT id, url FROM urls WHERE url = '${escaped}' AND ${wsCondition}`,
+  );
 
   if (rows.length === 0) {
     return { type: "invalid" };
   }
 
-  // Determine if it was a new insert by checking if created_at is very recent (within last 2 seconds)
   const check = runSQL<{ is_new: number }>(
     `SELECT (julianday('now') - julianday(created_at)) * 86400 < 2 AS is_new FROM urls WHERE id = ${rows[0].id}`,
   );
@@ -88,9 +105,6 @@ export function saveUrl(raw: string): SaveResult {
     : { type: "duplicate", id: rows[0].id, url: rows[0].url };
 }
 
-/**
- * Update a local URL entry with enriched data and status from the API.
- */
 export function enrichUrl(
   url: string,
   title: string | undefined,
@@ -98,6 +112,7 @@ export function enrichUrl(
   tags: string[] | undefined,
   apiStatus: string,
   apiBookmarkId?: string,
+  workspaceId?: string,
 ): void {
   initDatabase();
   const escapedUrl = url.replace(/'/g, "''");
@@ -106,8 +121,9 @@ export function enrichUrl(
   const escapedTags = tags && tags.length > 0 ? `'${tags.join(",").replace(/'/g, "''")}'` : "NULL";
   const escapedStatus = `'${apiStatus.replace(/'/g, "''")}'`;
   const escapedBookmarkId = apiBookmarkId ? `'${apiBookmarkId.replace(/'/g, "''")}'` : "NULL";
+  const wsCondition = workspaceId ? `workspace_id = '${workspaceId.replace(/'/g, "''")}'` : "1=1";
   runSQL(
-    `UPDATE urls SET title = ${escapedTitle}, description = ${escapedDesc}, tags = ${escapedTags}, api_status = ${escapedStatus}, api_bookmark_id = COALESCE(${escapedBookmarkId}, api_bookmark_id) WHERE url = '${escapedUrl}'`,
+    `UPDATE urls SET title = ${escapedTitle}, description = ${escapedDesc}, tags = ${escapedTags}, api_status = ${escapedStatus}, api_bookmark_id = COALESCE(${escapedBookmarkId}, api_bookmark_id) WHERE url = '${escapedUrl}' AND ${wsCondition}`,
   );
 }
 
@@ -116,14 +132,26 @@ export function deleteUrl(id: number): void {
   runSQL(`DELETE FROM urls WHERE id = ${id}`);
 }
 
+const SELECT_COLS = "id, url, workspace_id, title, description, tags, api_status, api_bookmark_id, created_at";
+
 /**
  * Builds the SQL query string for useSQL hook (read-only).
- * useSQL needs the raw query; it handles execution internally.
+ * workspaceIds: single ID, array of IDs, or undefined for all.
  */
-export function buildSearchQuery(query?: string): string {
+export function buildSearchQuery(query?: string, workspaceIds?: string | string[]): string {
+  let wsFilter = "";
+  if (workspaceIds) {
+    const ids = Array.isArray(workspaceIds) ? workspaceIds : [workspaceIds];
+    const escaped = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(",");
+    wsFilter = `workspace_id IN (${escaped})`;
+  }
+
   if (!query || query.trim() === "") {
-    return "SELECT id, url, title, description, tags, api_status, api_bookmark_id, created_at FROM urls ORDER BY created_at DESC LIMIT 100";
+    const where = wsFilter ? `WHERE ${wsFilter}` : "";
+    return `SELECT ${SELECT_COLS} FROM urls ${where} ORDER BY created_at DESC LIMIT 100`;
   }
   const escaped = query.replace(/'/g, "''");
-  return `SELECT id, url, title, description, tags, api_status, api_bookmark_id, created_at FROM urls WHERE url LIKE '%${escaped}%' OR title LIKE '%${escaped}%' OR description LIKE '%${escaped}%' ORDER BY created_at DESC LIMIT 100`;
+  const textFilter = `(url LIKE '%${escaped}%' OR title LIKE '%${escaped}%' OR description LIKE '%${escaped}%')`;
+  const where = wsFilter ? `WHERE ${wsFilter} AND ${textFilter}` : `WHERE ${textFilter}`;
+  return `SELECT ${SELECT_COLS} FROM urls ${where} ORDER BY created_at DESC LIMIT 100`;
 }

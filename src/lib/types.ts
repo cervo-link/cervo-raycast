@@ -1,6 +1,7 @@
 export interface UrlEntry {
   id: number;
   url: string;
+  workspace_id: string | null;
   title: string | null;
   description: string | null;
   tags: string | null;
