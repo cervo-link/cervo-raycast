@@ -39,12 +39,13 @@ export function initDatabase(): void {
       description TEXT,
       tags TEXT,
       api_status TEXT,
+      api_bookmark_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);
   `);
   // Migrate: add columns if they don't exist (for existing databases)
-  const migrations = ["title TEXT", "description TEXT", "tags TEXT", "api_status TEXT"];
+  const migrations = ["title TEXT", "description TEXT", "tags TEXT", "api_status TEXT", "api_bookmark_id TEXT"];
   for (const col of migrations) {
     try {
       runSQL(`ALTER TABLE urls ADD COLUMN ${col};`);
@@ -96,6 +97,7 @@ export function enrichUrl(
   description: string | undefined,
   tags: string[] | undefined,
   apiStatus: string,
+  apiBookmarkId?: string,
 ): void {
   initDatabase();
   const escapedUrl = url.replace(/'/g, "''");
@@ -103,8 +105,9 @@ export function enrichUrl(
   const escapedDesc = description ? `'${description.replace(/'/g, "''")}'` : "NULL";
   const escapedTags = tags && tags.length > 0 ? `'${tags.join(",").replace(/'/g, "''")}'` : "NULL";
   const escapedStatus = `'${apiStatus.replace(/'/g, "''")}'`;
+  const escapedBookmarkId = apiBookmarkId ? `'${apiBookmarkId.replace(/'/g, "''")}'` : "NULL";
   runSQL(
-    `UPDATE urls SET title = ${escapedTitle}, description = ${escapedDesc}, tags = ${escapedTags}, api_status = ${escapedStatus} WHERE url = '${escapedUrl}'`,
+    `UPDATE urls SET title = ${escapedTitle}, description = ${escapedDesc}, tags = ${escapedTags}, api_status = ${escapedStatus}, api_bookmark_id = COALESCE(${escapedBookmarkId}, api_bookmark_id) WHERE url = '${escapedUrl}'`,
   );
 }
 
@@ -119,8 +122,8 @@ export function deleteUrl(id: number): void {
  */
 export function buildSearchQuery(query?: string): string {
   if (!query || query.trim() === "") {
-    return "SELECT id, url, title, description, tags, api_status, created_at FROM urls ORDER BY created_at DESC LIMIT 100";
+    return "SELECT id, url, title, description, tags, api_status, api_bookmark_id, created_at FROM urls ORDER BY created_at DESC LIMIT 100";
   }
   const escaped = query.replace(/'/g, "''");
-  return `SELECT id, url, title, description, tags, api_status, created_at FROM urls WHERE url LIKE '%${escaped}%' OR title LIKE '%${escaped}%' OR description LIKE '%${escaped}%' ORDER BY created_at DESC LIMIT 100`;
+  return `SELECT id, url, title, description, tags, api_status, api_bookmark_id, created_at FROM urls WHERE url LIKE '%${escaped}%' OR title LIKE '%${escaped}%' OR description LIKE '%${escaped}%' ORDER BY created_at DESC LIMIT 100`;
 }

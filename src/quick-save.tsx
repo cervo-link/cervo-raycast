@@ -1,5 +1,5 @@
 import { Clipboard, showHUD, getPreferenceValues } from "@raycast/api";
-import { saveUrl } from "./lib/db";
+import { saveUrl, enrichUrl } from "./lib/db";
 import { apiSaveBookmark, isApiConfigured } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { Preferences } from "./lib/types";
@@ -22,8 +22,13 @@ export default async function Command() {
         await Clipboard.clear();
       }
       if (isApiConfigured()) {
-        const synced = await apiSaveBookmark(result.url);
-        await showHUD(synced ? `Link saved: ${host}` : `Link saved locally: ${host}`);
+        const apiBookmarkId = await apiSaveBookmark(result.url);
+        if (apiBookmarkId) {
+          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+          await showHUD(`Link saved: ${host}`);
+        } else {
+          await showHUD(`Link saved locally: ${host}`);
+        }
       } else {
         await showHUD(`Link saved: ${host}`);
       }

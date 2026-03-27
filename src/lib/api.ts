@@ -16,12 +16,12 @@ function getApiConfig(): { apiUrl: string; apiKey: string; workspaceId: string; 
 
 /**
  * Save a bookmark to the Cervo API.
- * Returns true if synced successfully, false otherwise.
+ * Returns the API bookmark ID if synced successfully, null otherwise.
  * Local save is always the source of truth.
  */
-export async function apiSaveBookmark(url: string): Promise<boolean> {
+export async function apiSaveBookmark(url: string): Promise<string | null> {
   const config = getApiConfig();
-  if (!config) return false;
+  if (!config) return null;
 
   try {
     const response = await fetch(`${config.apiUrl}/bookmarks`, {
@@ -37,9 +37,32 @@ export async function apiSaveBookmark(url: string): Promise<boolean> {
         source: "raycast",
       }),
     });
-    return response.ok || response.status === 201;
+    if (response.ok || response.status === 201) {
+      const data = (await response.json()) as { id: string; status: string };
+      return data.id;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * Get a bookmark's current status by its API ID.
+ * Used for polling processing/failed items.
+ */
+export async function apiGetBookmarkById(bookmarkId: string): Promise<ApiBookmark | null> {
+  const config = getApiConfig();
+  if (!config) return null;
+
+  try {
+    const response = await fetch(`${config.apiUrl}/bookmarks/${bookmarkId}`, {
+      headers: { "X-API-Key": config.apiKey },
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as ApiBookmark;
+  } catch {
+    return null;
   }
 }
 

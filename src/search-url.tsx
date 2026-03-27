@@ -22,6 +22,7 @@ import {
   apiFetchEnrichedData,
   apiDeleteBookmark,
   apiRetryBookmark,
+  apiGetBookmarkById,
   isApiConfigured,
 } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
@@ -39,6 +40,7 @@ interface DisplayItem {
   timeText: string;
   matchedBecause?: string;
   localId?: number;
+  apiBookmarkId?: string;
   source: "local" | "api";
   status: ItemStatus;
 }
@@ -104,6 +106,7 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
     tags: bookmark.tags,
     timeText: relativeTime(bookmark.createdAt),
     matchedBecause: bookmark.matchedBecause,
+    apiBookmarkId: bookmark.id,
     source: "api",
     status: apiStatusToItemStatus(bookmark.status),
   };
@@ -123,6 +126,7 @@ function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): Dis
         apiMatch.description,
         apiMatch.tags,
         apiMatch.status,
+        apiMatch.apiBookmarkId,
       );
       return {
         ...local,
@@ -211,13 +215,23 @@ export default function Command() {
       );
       if (needsUpdate.length === 0) return false;
 
-      const urls = needsUpdate.map((e) => e.url);
-      const apiBookmarks = await apiFetchEnrichedData(urls);
-      const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
-
       let updated = false;
+      let stillProcessing = false;
+
       for (const entry of needsUpdate) {
-        const match = apiByUrl.get(entry.url);
+        let match = null;
+
+        // Prefer direct ID lookup (catches failed items that don't appear in search)
+        if (entry.api_bookmark_id) {
+          match = await apiGetBookmarkById(entry.api_bookmark_id);
+        }
+
+        // Fallback to URL search if no ID stored
+        if (!match) {
+          const results = await apiFetchEnrichedData([entry.url]);
+          match = results.find((b) => b.url === entry.url) || null;
+        }
+
         if (match) {
           enrichUrl(
             entry.url,
@@ -225,17 +239,19 @@ export default function Command() {
             match.description,
             match.tags,
             match.status,
+            match.id,
           );
           updated = true;
+          if (match.status === "submitted" || match.status === "processing") {
+            stillProcessing = true;
+          }
+        } else {
+          stillProcessing = true;
         }
       }
-      if (updated) revalidate();
 
-      // Return true if there are still items processing
-      return needsUpdate.some((entry) => {
-        const match = apiByUrl.get(entry.url);
-        return !match || match.status === "submitted" || match.status === "processing";
-      });
+      if (updated) revalidate();
+      return stillProcessing;
     }
 
     let timer: NodeJS.Timeout;

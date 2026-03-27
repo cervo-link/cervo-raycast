@@ -5,6 +5,7 @@ export interface UrlEntry {
   description: string | null;
   tags: string | null;
   api_status: string | null;
+  api_bookmark_id: string | null;
   created_at: string;
 }
 
