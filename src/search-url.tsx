@@ -20,13 +20,14 @@ import {
   apiSaveBookmark,
   apiSearchBookmarks,
   apiFetchEnrichedData,
+  apiFetchWorkspaces,
   apiDeleteBookmark,
   apiRetryBookmark,
   isApiConfigured,
 } from "./lib/api";
 import { looksLikeUrl, normalizeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
-import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
+import { UrlEntry, ApiBookmark, Workspace, Preferences } from "./lib/types";
 
 type ItemStatus = "ready" | "processing" | "failed" | "local";
 
@@ -187,14 +188,58 @@ function buildDetailMarkdown(item: DisplayItem): string {
   return parts.join("\n");
 }
 
+function WorkspaceDropdown(props: {
+  workspaces: Workspace[];
+  apiConfigured: boolean;
+  onWorkspaceChange: (workspaceId: string) => void;
+}) {
+  if (!props.apiConfigured) {
+    return (
+      <List.Dropdown tooltip="Workspace" storeValue onChange={() => {}}>
+        <List.Dropdown.Item title="Configure API to use workspaces" value="" />
+      </List.Dropdown>
+    );
+  }
+
+  if (props.workspaces.length === 0) {
+    return (
+      <List.Dropdown tooltip="Workspace" storeValue onChange={() => {}}>
+        <List.Dropdown.Item title="Loading workspaces..." value="" />
+      </List.Dropdown>
+    );
+  }
+
+  return (
+    <List.Dropdown tooltip="Workspace" storeValue onChange={props.onWorkspaceChange}>
+      {props.workspaces.map((ws) => (
+        <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
+      ))}
+    </List.Dropdown>
+  );
+}
+
 export default function Command() {
   const prefs = getPreferenceValues<Preferences>();
   const [searchText, setSearchText] = useState("");
   const clipboardChecked = useRef(false);
   const [apiResults, setApiResults] = useState<DisplayItem[]>([]);
   const [apiLoading, setApiLoading] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
+  const apiConfigured = isApiConfigured();
 
   initDatabase();
+
+  // Fetch workspaces on load
+  useEffect(() => {
+    if (!apiConfigured) return;
+    apiFetchWorkspaces().then((ws) => {
+      setWorkspaces(ws);
+      if (ws.length > 0 && !selectedWorkspaceId) {
+        setSelectedWorkspaceId(ws[0].id);
+      }
+    });
+  }, []);
 
   const query = buildSearchQuery(searchText);
   const { data, isLoading, revalidate } = useSQL<UrlEntry>(getDbPath(), query);
@@ -215,19 +260,21 @@ export default function Command() {
         if (prefs.clearClipboardAfterSave) {
           await Clipboard.clear();
         }
-        const apiBookmarkId = await apiSaveBookmark(result.url);
-        if (apiBookmarkId) {
-          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+        if (selectedWorkspaceId) {
+          const apiBookmarkId = await apiSaveBookmark(result.url, selectedWorkspaceId);
+          if (apiBookmarkId) {
+            enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+          }
         }
         revalidate();
       }
     })();
-  }, []);
+  }, [selectedWorkspaceId]);
 
   // Poll API for processing items every 5 seconds until all resolved
   const pollCount = useRef(0);
   useEffect(() => {
-    if (!data || data.length === 0 || !isApiConfigured()) return;
+    if (!data || data.length === 0 || !apiConfigured || !selectedWorkspaceId) return;
 
     async function pollEnrichment() {
       pollCount.current += 1;
@@ -237,7 +284,7 @@ export default function Command() {
       if (needsUpdate.length === 0) return false;
 
       const urls = needsUpdate.map((e) => e.url);
-      const apiBookmarks = await apiFetchEnrichedData(urls);
+      const apiBookmarks = await apiFetchEnrichedData(urls, selectedWorkspaceId);
       const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
 
       let updated = false;
@@ -286,11 +333,11 @@ export default function Command() {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [data]);
+  }, [data, selectedWorkspaceId]);
 
   // Background API search when query changes
   useEffect(() => {
-    if (!searchText.trim() || !isApiConfigured()) {
+    if (!searchText.trim() || !apiConfigured || !selectedWorkspaceId) {
       setApiResults([]);
       return;
     }
@@ -298,7 +345,7 @@ export default function Command() {
     let cancelled = false;
     setApiLoading(true);
 
-    apiSearchBookmarks(searchText).then((bookmarks) => {
+    apiSearchBookmarks(searchText, selectedWorkspaceId).then((bookmarks) => {
       if (!cancelled) {
         setApiResults(bookmarks.map(apiToDisplayItem));
         setApiLoading(false);
@@ -308,7 +355,7 @@ export default function Command() {
     return () => {
       cancelled = true;
     };
-  }, [searchText]);
+  }, [searchText, selectedWorkspaceId]);
 
   async function handleSaveFromSearch(url: string) {
     const result = saveUrl(url);
@@ -318,9 +365,11 @@ export default function Command() {
       if (prefs.clearClipboardAfterSave) {
         await Clipboard.clear();
       }
-      const apiBookmarkId = await apiSaveBookmark(result.url);
-      if (apiBookmarkId) {
-        enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+      if (selectedWorkspaceId) {
+        const apiBookmarkId = await apiSaveBookmark(result.url, selectedWorkspaceId);
+        if (apiBookmarkId) {
+          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+        }
       }
       revalidate();
     } else if (result.type === "duplicate") {
@@ -331,13 +380,14 @@ export default function Command() {
   }
 
   async function handleRetry(item: DisplayItem) {
+    if (!selectedWorkspaceId) return;
     await showToast({ style: Toast.Style.Animated, title: "Reprocessing...", message: item.url });
     if (item.localId) {
       enrichUrl(item.url, undefined, undefined, undefined, "processing");
     }
     revalidate();
 
-    const success = await apiRetryBookmark(item.url);
+    const success = await apiRetryBookmark(item.url, selectedWorkspaceId);
     if (success) {
       await showToast({ style: Toast.Style.Success, title: "Reprocessing started", message: item.url });
     } else {
@@ -360,16 +410,16 @@ export default function Command() {
     if (confirmed) {
       deleteUrl(item.localId);
       await showToast({ style: Toast.Style.Success, title: "Deleted", message: item.url });
-      apiDeleteBookmark(item.url);
+      if (selectedWorkspaceId) {
+        apiDeleteBookmark(item.url, selectedWorkspaceId);
+      }
       revalidate();
     }
   }
 
-  const apiConfigured = isApiConfigured();
   const localItems = (data || []).map((entry) => localToDisplayItem(entry, apiConfigured));
   const items = searchText.trim() ? mergeAndEnrich(localItems, apiResults) : localItems;
 
-  // Detect if search text is a URL that can be saved
   const searchIsUrl = searchText.trim() && looksLikeUrl(searchText.trim()) && !!normalizeUrl(searchText.trim());
 
   return (
@@ -380,6 +430,13 @@ export default function Command() {
       onSearchTextChange={setSearchText}
       filtering={false}
       throttle
+      searchBarAccessory={
+        <WorkspaceDropdown
+          workspaces={workspaces}
+          apiConfigured={apiConfigured}
+          onWorkspaceChange={setSelectedWorkspaceId}
+        />
+      }
     >
       {searchIsUrl && (
         <List.Item

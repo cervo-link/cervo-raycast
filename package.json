@@ -65,13 +65,6 @@
       "required": false
     },
     {
-      "name": "workspaceId",
-      "title": "Workspace ID",
-      "description": "UUID of the workspace to save bookmarks to",
-      "type": "textfield",
-      "required": false
-    },
-    {
       "name": "memberId",
       "title": "Member ID",
       "description": "Your member UUID in the Cervo API",

@@ -1,25 +1,52 @@
 import { getPreferenceValues } from "@raycast/api";
-import { Preferences, ApiBookmark } from "./types";
+import { Preferences, ApiBookmark, Workspace } from "./types";
 
-function getApiConfig(): { apiUrl: string; apiKey: string; workspaceId: string; memberId: string } | null {
+interface ApiConfig {
+  apiUrl: string;
+  apiKey: string;
+  memberId: string;
+}
+
+export function getApiConfig(): ApiConfig | null {
   const prefs = getPreferenceValues<Preferences>();
-  if (!prefs.apiUrl || !prefs.apiKey || !prefs.workspaceId || !prefs.memberId) {
+  if (!prefs.apiUrl || !prefs.apiKey || !prefs.memberId) {
     return null;
   }
   return {
     apiUrl: prefs.apiUrl.replace(/\/$/, ""),
     apiKey: prefs.apiKey,
-    workspaceId: prefs.workspaceId,
     memberId: prefs.memberId,
   };
+}
+
+export function isApiConfigured(): boolean {
+  return getApiConfig() !== null;
+}
+
+/**
+ * Fetch workspaces for the configured member.
+ */
+export async function apiFetchWorkspaces(): Promise<Workspace[]> {
+  const config = getApiConfig();
+  if (!config) return [];
+
+  try {
+    const response = await fetch(`${config.apiUrl}/workspaces/by-member/${config.memberId}`, {
+      headers: { "X-API-Key": config.apiKey },
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { workspaces: Workspace[] };
+    return data.workspaces;
+  } catch {
+    return [];
+  }
 }
 
 /**
  * Save a bookmark to the Cervo API.
  * Returns the API bookmark ID if synced successfully, null otherwise.
- * Local save is always the source of truth.
  */
-export async function apiSaveBookmark(url: string): Promise<string | null> {
+export async function apiSaveBookmark(url: string, workspaceId: string): Promise<string | null> {
   const config = getApiConfig();
   if (!config) return null;
 
@@ -31,7 +58,7 @@ export async function apiSaveBookmark(url: string): Promise<string | null> {
         "X-API-Key": config.apiKey,
       },
       body: JSON.stringify({
-        workspaceId: config.workspaceId,
+        workspaceId,
         memberId: config.memberId,
         url,
         source: "raycast",
@@ -48,44 +75,22 @@ export async function apiSaveBookmark(url: string): Promise<string | null> {
 }
 
 /**
- * Get a bookmark's current status by its API ID.
- * Used for polling processing/failed items.
- */
-export async function apiGetBookmarkById(bookmarkId: string): Promise<ApiBookmark | null> {
-  const config = getApiConfig();
-  if (!config) return null;
-
-  try {
-    const response = await fetch(`${config.apiUrl}/bookmarks/${bookmarkId}`, {
-      headers: { "X-API-Key": config.apiKey },
-    });
-    if (!response.ok) return null;
-    return (await response.json()) as ApiBookmark;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Search bookmarks via the Cervo API (semantic vector search).
- * Returns empty array on failure.
  */
-export async function apiSearchBookmarks(text: string, limit = 10): Promise<ApiBookmark[]> {
+export async function apiSearchBookmarks(text: string, workspaceId: string, limit = 10): Promise<ApiBookmark[]> {
   const config = getApiConfig();
   if (!config) return [];
 
   try {
     const params = new URLSearchParams({
-      workspaceId: config.workspaceId,
+      workspaceId,
       memberId: config.memberId,
       text,
       limit: String(limit),
     });
 
     const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
-      headers: {
-        "X-API-Key": config.apiKey,
-      },
+      headers: { "X-API-Key": config.apiKey },
     });
 
     if (!response.ok) return [];
@@ -96,11 +101,9 @@ export async function apiSearchBookmarks(text: string, limit = 10): Promise<ApiB
 }
 
 /**
- * Fetch enriched data for a list of URLs by searching the API for each URL.
- * Used to backfill local items that don't have titles yet.
- * Returns all bookmarks found.
+ * Fetch enriched data for a list of URLs by searching the API.
  */
-export async function apiFetchEnrichedData(urls: string[]): Promise<ApiBookmark[]> {
+export async function apiFetchEnrichedData(urls: string[], workspaceId: string): Promise<ApiBookmark[]> {
   const config = getApiConfig();
   if (!config || urls.length === 0) return [];
 
@@ -110,7 +113,7 @@ export async function apiFetchEnrichedData(urls: string[]): Promise<ApiBookmark[
   for (const url of urls) {
     try {
       const params = new URLSearchParams({
-        workspaceId: config.workspaceId,
+        workspaceId,
         memberId: config.memberId,
         text: url,
         limit: "5",
@@ -139,16 +142,14 @@ export async function apiFetchEnrichedData(urls: string[]): Promise<ApiBookmark[
 
 /**
  * Delete a bookmark from the Cervo API by searching for its URL first.
- * Fire-and-forget -- local delete is the source of truth.
  */
-export async function apiDeleteBookmark(url: string): Promise<void> {
+export async function apiDeleteBookmark(url: string, workspaceId: string): Promise<void> {
   const config = getApiConfig();
   if (!config) return;
 
   try {
-    // Find the bookmark ID by searching for the URL
     const params = new URLSearchParams({
-      workspaceId: config.workspaceId,
+      workspaceId,
       memberId: config.memberId,
       text: url,
       limit: "5",
@@ -173,17 +174,15 @@ export async function apiDeleteBookmark(url: string): Promise<void> {
 }
 
 /**
- * Retry processing a failed bookmark, or re-submit if not found in API.
- * Returns true on success.
+ * Retry processing a failed bookmark, or re-submit if not found.
  */
-export async function apiRetryBookmark(url: string): Promise<boolean> {
+export async function apiRetryBookmark(url: string, workspaceId: string): Promise<boolean> {
   const config = getApiConfig();
   if (!config) return false;
 
   try {
-    // Find the bookmark by URL
     const params = new URLSearchParams({
-      workspaceId: config.workspaceId,
+      workspaceId,
       memberId: config.memberId,
       text: url,
       limit: "5",
@@ -198,7 +197,6 @@ export async function apiRetryBookmark(url: string): Promise<boolean> {
       const match = bookmarks.find((b) => b.url === url);
 
       if (match && match.status === "failed") {
-        // Retry the failed bookmark
         const retryResponse = await fetch(`${config.apiUrl}/bookmarks/${match.id}/retry`, {
           method: "POST",
           headers: { "X-API-Key": config.apiKey },
@@ -207,7 +205,7 @@ export async function apiRetryBookmark(url: string): Promise<boolean> {
       }
     }
 
-    // Not found or not in failed state -- re-submit as new
+    // Not found or not in failed state -- re-submit
     const response = await fetch(`${config.apiUrl}/bookmarks`, {
       method: "POST",
       headers: {
@@ -215,7 +213,7 @@ export async function apiRetryBookmark(url: string): Promise<boolean> {
         "X-API-Key": config.apiKey,
       },
       body: JSON.stringify({
-        workspaceId: config.workspaceId,
+        workspaceId,
         memberId: config.memberId,
         url,
         source: "raycast",
@@ -225,11 +223,4 @@ export async function apiRetryBookmark(url: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/**
- * Check if the API is configured.
- */
-export function isApiConfigured(): boolean {
-  return getApiConfig() !== null;
 }

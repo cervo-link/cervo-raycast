@@ -25,12 +25,16 @@ export type SaveResult =
   | { type: "duplicate"; id: number; url: string }
   | { type: "invalid" };
 
+export interface Workspace {
+  id: string;
+  name: string;
+}
+
 export interface Preferences {
   autoSaveClipboard: boolean;
   clearClipboardAfterSave: boolean;
   closeAfterAction: boolean;
   apiUrl?: string;
   apiKey?: string;
-  workspaceId?: string;
   memberId?: string;
 }
