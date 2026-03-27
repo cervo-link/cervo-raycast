@@ -144,6 +144,10 @@ export function migrateOrphanedUrls(workspaceId: string): void {
   runSQL(
     `DELETE FROM urls WHERE (workspace_id IS NULL OR workspace_id = '') AND url IN (SELECT url FROM urls WHERE workspace_id = '${escaped}')`,
   );
+  // Dedupe orphans: keep only the newest row per URL among orphans
+  runSQL(
+    `DELETE FROM urls WHERE (workspace_id IS NULL OR workspace_id = '') AND id NOT IN (SELECT MAX(id) FROM urls WHERE workspace_id IS NULL OR workspace_id = '' GROUP BY url)`,
+  );
   // Assign remaining orphans
   runSQL(`UPDATE urls SET workspace_id = '${escaped}' WHERE workspace_id IS NULL OR workspace_id = ''`);
 }
