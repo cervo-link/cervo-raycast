@@ -14,7 +14,7 @@ import {
 } from "@raycast/api";
 import { useSQL } from "@raycast/utils";
 import { useEffect, useRef, useState } from "react";
-import { getDbPath, initDatabase, deleteUrl, saveUrl, buildSearchQuery } from "./lib/db";
+import { getDbPath, initDatabase, deleteUrl, saveUrl, enrichUrl, buildSearchQuery } from "./lib/db";
 import { apiSaveBookmark, apiSearchBookmarks, isApiConfigured } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
@@ -33,10 +33,13 @@ interface DisplayItem {
 }
 
 function localToDisplayItem(entry: UrlEntry): DisplayItem {
+  const tags = entry.tags ? entry.tags.split(",").filter(Boolean) : undefined;
   return {
     key: `local-${entry.id}`,
     url: entry.url,
-    title: entry.url,
+    title: entry.title || entry.url,
+    description: entry.description || undefined,
+    tags,
     timeText: relativeTime(entry.created_at),
     localId: entry.id,
     source: "local",
@@ -56,25 +59,27 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
   };
 }
 
-function mergeResults(localItems: DisplayItem[], apiItems: DisplayItem[]): DisplayItem[] {
-  // Enrich local items with API data when URLs match
+function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): DisplayItem[] {
   const apiByUrl = new Map(apiItems.map((item) => [item.url, item]));
+
+  // Enrich local items with API data and cache it to SQLite
   const enrichedLocal = localItems.map((local) => {
     const apiMatch = apiByUrl.get(local.url);
-    if (apiMatch) {
+    if (apiMatch && apiMatch.title !== apiMatch.url) {
+      // Cache enriched data locally
+      enrichUrl(local.url, apiMatch.title, apiMatch.description, apiMatch.tags);
       return {
         ...local,
-        title: apiMatch.title || local.title,
+        title: apiMatch.title,
         description: apiMatch.description,
         tags: apiMatch.tags,
         matchedBecause: apiMatch.matchedBecause,
-        source: "local" as const,
       };
     }
     return local;
   });
 
-  // Add API-only items (not in local)
+  // Add API-only items
   const seenUrls = new Set(localItems.map((item) => item.url));
   const uniqueApiItems = apiItems.filter((item) => !seenUrls.has(item.url));
 
@@ -102,8 +107,6 @@ function buildDetailMarkdown(item: DisplayItem): string {
     parts.push(`\n**Matched because:** ${item.matchedBecause}`);
   }
 
-  parts.push(`\n*${item.source === "api" ? "Synced with Cervo API" : "Local only"}*`);
-
   return parts.join("\n");
 }
 
@@ -113,9 +116,7 @@ export default function Command() {
   const clipboardChecked = useRef(false);
   const [apiResults, setApiResults] = useState<DisplayItem[]>([]);
   const [apiLoading, setApiLoading] = useState(false);
-  const hasApiResults = apiResults.length > 0;
 
-  // Ensure database exists before querying
   initDatabase();
 
   const query = buildSearchQuery(searchText);
@@ -185,12 +186,13 @@ export default function Command() {
   }
 
   const localItems = (data || []).map(localToDisplayItem);
-  const items = searchText.trim() ? mergeResults(localItems, apiResults) : localItems;
+  const items = searchText.trim() ? mergeAndEnrich(localItems, apiResults) : localItems;
+  const hasEnrichedItems = items.some((item) => item.title !== item.url);
 
   return (
     <List
       isLoading={isLoading || apiLoading}
-      isShowingDetail={hasApiResults}
+      isShowingDetail={hasEnrichedItems}
       searchBarPlaceholder="Search saved URLs..."
       onSearchTextChange={setSearchText}
       filtering={false}
@@ -200,32 +202,31 @@ export default function Command() {
         <List.EmptyView title="No saved URLs yet" description="Use Quick Save to add URLs" icon={Icon.Globe} />
       ) : (
         items.map((item) => {
-          const hasEnrichedData = item.description || item.matchedBecause || (item.tags && item.tags.length > 0);
+          const hasDetail = item.title !== item.url || item.description || item.matchedBecause;
 
           return (
             <List.Item
               key={item.key}
               title={item.title}
-              subtitle={hasApiResults ? undefined : item.url !== item.title ? item.url : undefined}
-              accessories={hasApiResults ? undefined : [{ text: item.timeText }]}
+              subtitle={hasEnrichedItems ? undefined : item.url !== item.title ? item.url : undefined}
+              accessories={hasEnrichedItems ? undefined : [{ text: item.timeText }]}
               detail={
-                hasApiResults ? (
+                hasEnrichedItems ? (
                   <List.Item.Detail
-                    markdown={hasEnrichedData ? buildDetailMarkdown(item) : `**URL:** ${item.url}\n\n*Local only*`}
+                    markdown={hasDetail ? buildDetailMarkdown(item) : `**URL:** ${item.url}`}
                     metadata={
                       <List.Item.Detail.Metadata>
                         <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
                         <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
-                        <List.Item.Detail.Metadata.Label
-                          title="Source"
-                          text={item.source === "api" ? "Cervo API" : "Local"}
-                        />
                         {item.tags && item.tags.length > 0 && (
                           <List.Item.Detail.Metadata.TagList title="Tags">
                             {item.tags.map((tag) => (
                               <List.Item.Detail.Metadata.TagList.Item key={tag} text={tag} />
                             ))}
                           </List.Item.Detail.Metadata.TagList>
+                        )}
+                        {item.matchedBecause && (
+                          <List.Item.Detail.Metadata.Label title="Match" text={item.matchedBecause} />
                         )}
                       </List.Item.Detail.Metadata>
                     }

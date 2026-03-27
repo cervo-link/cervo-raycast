@@ -35,10 +35,29 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS urls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL UNIQUE,
+      title TEXT,
+      description TEXT,
+      tags TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);
   `);
+  // Migrate: add columns if they don't exist (for existing databases)
+  try {
+    runSQL(`ALTER TABLE urls ADD COLUMN title TEXT;`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    runSQL(`ALTER TABLE urls ADD COLUMN description TEXT;`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    runSQL(`ALTER TABLE urls ADD COLUMN tags TEXT;`);
+  } catch {
+    /* column already exists */
+  }
   dbInitialized = true;
 }
 
@@ -74,6 +93,20 @@ export function saveUrl(raw: string): SaveResult {
     : { type: "duplicate", id: rows[0].id, url: rows[0].url };
 }
 
+/**
+ * Update a local URL entry with enriched data from the API.
+ */
+export function enrichUrl(url: string, title: string, description?: string, tags?: string[]): void {
+  initDatabase();
+  const escapedUrl = url.replace(/'/g, "''");
+  const escapedTitle = title.replace(/'/g, "''");
+  const escapedDesc = description ? `'${description.replace(/'/g, "''")}'` : "NULL";
+  const escapedTags = tags && tags.length > 0 ? `'${tags.join(",").replace(/'/g, "''")}'` : "NULL";
+  runSQL(
+    `UPDATE urls SET title = '${escapedTitle}', description = ${escapedDesc}, tags = ${escapedTags} WHERE url = '${escapedUrl}'`,
+  );
+}
+
 export function deleteUrl(id: number): void {
   initDatabase();
   runSQL(`DELETE FROM urls WHERE id = ${id}`);
@@ -85,8 +118,8 @@ export function deleteUrl(id: number): void {
  */
 export function buildSearchQuery(query?: string): string {
   if (!query || query.trim() === "") {
-    return "SELECT id, url, created_at FROM urls ORDER BY created_at DESC LIMIT 100";
+    return "SELECT id, url, title, description, tags, created_at FROM urls ORDER BY created_at DESC LIMIT 100";
   }
   const escaped = query.replace(/'/g, "''");
-  return `SELECT id, url, created_at FROM urls WHERE url LIKE '%${escaped}%' ORDER BY created_at DESC LIMIT 100`;
+  return `SELECT id, url, title, description, tags, created_at FROM urls WHERE url LIKE '%${escaped}%' OR title LIKE '%${escaped}%' OR description LIKE '%${escaped}%' ORDER BY created_at DESC LIMIT 100`;
 }

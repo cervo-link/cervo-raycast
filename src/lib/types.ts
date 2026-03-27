@@ -1,6 +1,9 @@
 export interface UrlEntry {
   id: number;
   url: string;
+  title: string | null;
+  description: string | null;
+  tags: string | null;
   created_at: string;
 }
 
