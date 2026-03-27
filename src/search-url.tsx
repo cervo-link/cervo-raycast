@@ -187,12 +187,11 @@ export default function Command() {
 
   const localItems = (data || []).map(localToDisplayItem);
   const items = searchText.trim() ? mergeAndEnrich(localItems, apiResults) : localItems;
-  const hasEnrichedItems = items.some((item) => item.title !== item.url);
 
   return (
     <List
       isLoading={isLoading || apiLoading}
-      isShowingDetail={hasEnrichedItems}
+      isShowingDetail
       searchBarPlaceholder="Search saved URLs..."
       onSearchTextChange={setSearchText}
       filtering={false}
@@ -201,63 +200,53 @@ export default function Command() {
       {items.length === 0 && !isLoading && !apiLoading ? (
         <List.EmptyView title="No saved URLs yet" description="Use Quick Save to add URLs" icon={Icon.Globe} />
       ) : (
-        items.map((item) => {
-          const hasDetail = item.title !== item.url || item.description || item.matchedBecause;
-
-          return (
-            <List.Item
-              key={item.key}
-              title={item.title}
-              subtitle={hasEnrichedItems ? undefined : item.url !== item.title ? item.url : undefined}
-              accessories={hasEnrichedItems ? undefined : [{ text: item.timeText }]}
-              detail={
-                hasEnrichedItems ? (
-                  <List.Item.Detail
-                    markdown={hasDetail ? buildDetailMarkdown(item) : `**URL:** ${item.url}`}
-                    metadata={
-                      <List.Item.Detail.Metadata>
-                        <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
-                        <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
-                        {item.tags && item.tags.length > 0 && (
-                          <List.Item.Detail.Metadata.TagList title="Tags">
-                            {item.tags.map((tag) => (
-                              <List.Item.Detail.Metadata.TagList.Item key={tag} text={tag} />
-                            ))}
-                          </List.Item.Detail.Metadata.TagList>
-                        )}
-                        {item.matchedBecause && (
-                          <List.Item.Detail.Metadata.Label title="Match" text={item.matchedBecause} />
-                        )}
-                      </List.Item.Detail.Metadata>
-                    }
+        items.map((item) => (
+          <List.Item
+            key={item.key}
+            title={item.title}
+            accessories={[{ text: item.timeText }]}
+            detail={
+              <List.Item.Detail
+                markdown={buildDetailMarkdown(item)}
+                metadata={
+                  <List.Item.Detail.Metadata>
+                    <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
+                    <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
+                    {item.tags && item.tags.length > 0 && (
+                      <List.Item.Detail.Metadata.TagList title="Tags">
+                        {item.tags.map((tag) => (
+                          <List.Item.Detail.Metadata.TagList.Item key={tag} text={tag} />
+                        ))}
+                      </List.Item.Detail.Metadata.TagList>
+                    )}
+                    {item.matchedBecause && (
+                      <List.Item.Detail.Metadata.Label title="Match" text={item.matchedBecause} />
+                    )}
+                  </List.Item.Detail.Metadata>
+                }
+              />
+            }
+            actions={
+              <ActionPanel>
+                <Action.OpenInBrowser url={item.url} onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined} />
+                <Action.CopyToClipboard
+                  content={item.url}
+                  shortcut={Keyboard.Shortcut.Common.Copy}
+                  onCopy={prefs.closeAfterAction ? () => popToRoot() : undefined}
+                />
+                {item.localId && (
+                  <Action
+                    title="Delete URL"
+                    icon={Icon.Trash}
+                    style={Action.Style.Destructive}
+                    shortcut={Keyboard.Shortcut.Common.Remove}
+                    onAction={() => handleDelete(item)}
                   />
-                ) : undefined
-              }
-              actions={
-                <ActionPanel>
-                  <Action.OpenInBrowser
-                    url={item.url}
-                    onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined}
-                  />
-                  <Action.CopyToClipboard
-                    content={item.url}
-                    shortcut={Keyboard.Shortcut.Common.Copy}
-                    onCopy={prefs.closeAfterAction ? () => popToRoot() : undefined}
-                  />
-                  {item.localId && (
-                    <Action
-                      title="Delete URL"
-                      icon={Icon.Trash}
-                      style={Action.Style.Destructive}
-                      shortcut={Keyboard.Shortcut.Common.Remove}
-                      onAction={() => handleDelete(item)}
-                    />
-                  )}
-                </ActionPanel>
-              }
-            />
-          );
-        })
+                )}
+              </ActionPanel>
+            }
+          />
+        ))
       )}
     </List>
   );
