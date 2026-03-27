@@ -229,7 +229,7 @@ function WorkspaceDropdown(props: {
       ) : (
         <>
           <List.Dropdown.Section>
-            <List.Dropdown.Item title="All Workspaces" value={ALL_WORKSPACES_VALUE} icon={Icon.Globe} />
+            <List.Dropdown.Item title="All Workspaces" value={ALL_WORKSPACES_VALUE} />
             {props.workspaces.map((ws) => (
               <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
             ))}
