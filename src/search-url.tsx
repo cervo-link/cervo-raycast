@@ -379,7 +379,7 @@ export default function Command() {
                     title="Delete URL"
                     icon={Icon.Trash}
                     style={Action.Style.Destructive}
-                    shortcut={Keyboard.Shortcut.Common.Remove}
+                    shortcut={{ modifiers: ["cmd"], key: "backspace" }}
                     onAction={() => handleDelete(item)}
                   />
                 )}
