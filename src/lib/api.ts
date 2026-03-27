@@ -150,6 +150,61 @@ export async function apiDeleteBookmark(url: string): Promise<void> {
 }
 
 /**
+ * Retry processing a failed bookmark, or re-submit if not found in API.
+ * Returns true on success.
+ */
+export async function apiRetryBookmark(url: string): Promise<boolean> {
+  const config = getApiConfig();
+  if (!config) return false;
+
+  try {
+    // Find the bookmark by URL
+    const params = new URLSearchParams({
+      workspaceId: config.workspaceId,
+      memberId: config.memberId,
+      text: url,
+      limit: "5",
+    });
+
+    const searchResponse = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
+      headers: { "X-API-Key": config.apiKey },
+    });
+
+    if (searchResponse.ok) {
+      const bookmarks = (await searchResponse.json()) as ApiBookmark[];
+      const match = bookmarks.find((b) => b.url === url);
+
+      if (match && match.status === "failed") {
+        // Retry the failed bookmark
+        const retryResponse = await fetch(`${config.apiUrl}/bookmarks/${match.id}/retry`, {
+          method: "POST",
+          headers: { "X-API-Key": config.apiKey },
+        });
+        return retryResponse.ok;
+      }
+    }
+
+    // Not found or not in failed state -- re-submit as new
+    const response = await fetch(`${config.apiUrl}/bookmarks`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": config.apiKey,
+      },
+      body: JSON.stringify({
+        workspaceId: config.workspaceId,
+        memberId: config.memberId,
+        url,
+        source: "raycast",
+      }),
+    });
+    return response.ok || response.status === 201;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check if the API is configured.
  */
 export function isApiConfigured(): boolean {

@@ -21,6 +21,7 @@ import {
   apiSearchBookmarks,
   apiFetchEnrichedData,
   apiDeleteBookmark,
+  apiRetryBookmark,
   isApiConfigured,
 } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
@@ -278,6 +279,22 @@ export default function Command() {
     };
   }, [searchText]);
 
+  async function handleRetry(item: DisplayItem) {
+    await showToast({ style: Toast.Style.Animated, title: "Reprocessing...", message: item.url });
+    // Reset local status to processing
+    if (item.localId) {
+      enrichUrl(item.url, undefined, undefined, undefined, "processing");
+    }
+    revalidate();
+
+    const success = await apiRetryBookmark(item.url);
+    if (success) {
+      await showToast({ style: Toast.Style.Success, title: "Reprocessing started", message: item.url });
+    } else {
+      await showToast({ style: Toast.Style.Failure, title: "Reprocess failed", message: item.url });
+    }
+  }
+
   async function handleDelete(item: DisplayItem) {
     if (!item.localId) return;
 
@@ -349,6 +366,14 @@ export default function Command() {
                   shortcut={Keyboard.Shortcut.Common.Copy}
                   onCopy={prefs.closeAfterAction ? () => popToRoot() : undefined}
                 />
+                {(item.status === "failed" || item.status === "processing") && apiConfigured && (
+                  <Action
+                    title="Reprocess URL"
+                    icon={Icon.ArrowClockwise}
+                    shortcut={{ modifiers: ["cmd"], key: "r" }}
+                    onAction={() => handleRetry(item)}
+                  />
+                )}
                 {item.localId && (
                   <Action
                     title="Delete URL"
