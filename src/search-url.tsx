@@ -317,15 +317,11 @@ export default function Command() {
     }
   }
 
-  // Fetch workspaces on load
+  // Fetch workspaces on load (don't set selectedWorkspaceId -- let storeValue handle it via onChange)
   useEffect(() => {
     if (!apiConfigured) return;
     apiFetchWorkspaces().then((ws) => {
       setWorkspaces(ws);
-      if (ws.length > 0 && !selectedWorkspaceId) {
-        setSelectedWorkspaceId(ws[0].id);
-        lastRealWorkspaceId.current = ws[0].id;
-      }
     });
   }, []);
 
