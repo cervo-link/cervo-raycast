@@ -235,7 +235,7 @@ function WorkspaceDropdown(props: {
             ))}
           </List.Dropdown.Section>
           <List.Dropdown.Section>
-            <List.Dropdown.Item title="+ Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
+            <List.Dropdown.Item title="Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
           </List.Dropdown.Section>
         </>
       )}
