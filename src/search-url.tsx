@@ -22,7 +22,6 @@ import {
   apiFetchEnrichedData,
   apiDeleteBookmark,
   apiRetryBookmark,
-  apiGetBookmarkById,
   isApiConfigured,
 } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
@@ -206,32 +205,26 @@ export default function Command() {
   }, []);
 
   // Poll API for processing items every 5 seconds until all resolved
+  const pollCount = useRef(0);
   useEffect(() => {
     if (!data || data.length === 0 || !isApiConfigured()) return;
 
     async function pollEnrichment() {
+      pollCount.current += 1;
       const needsUpdate = (data || []).filter(
         (entry) => !entry.api_status || entry.api_status === "submitted" || entry.api_status === "processing",
       );
       if (needsUpdate.length === 0) return false;
 
+      const urls = needsUpdate.map((e) => e.url);
+      const apiBookmarks = await apiFetchEnrichedData(urls);
+      const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
+
       let updated = false;
       let stillProcessing = false;
 
       for (const entry of needsUpdate) {
-        let match = null;
-
-        // Prefer direct ID lookup (catches failed items that don't appear in search)
-        if (entry.api_bookmark_id) {
-          match = await apiGetBookmarkById(entry.api_bookmark_id);
-        }
-
-        // Fallback to URL search if no ID stored
-        if (!match) {
-          const results = await apiFetchEnrichedData([entry.url]);
-          match = results.find((b) => b.url === entry.url) || null;
-        }
-
+        const match = apiByUrl.get(entry.url);
         if (match) {
           enrichUrl(
             entry.url,
@@ -245,6 +238,10 @@ export default function Command() {
           if (match.status === "submitted" || match.status === "processing") {
             stillProcessing = true;
           }
+        } else if (pollCount.current >= 6) {
+          // After ~30s (6 polls x 5s) with no API match, mark as failed
+          enrichUrl(entry.url, undefined, undefined, undefined, "failed");
+          updated = true;
         } else {
           stillProcessing = true;
         }
