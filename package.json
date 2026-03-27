@@ -22,13 +22,6 @@
       "mode": "no-view"
     },
     {
-      "name": "save",
-      "title": "Save URL",
-      "subtitle": "Add new URL",
-      "description": "Manually save a URL to your collection",
-      "mode": "view"
-    },
-    {
       "name": "search-url",
       "title": "Search URLs",
       "subtitle": "Browse & search saved URLs",
