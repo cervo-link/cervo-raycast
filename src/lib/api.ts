@@ -73,6 +73,57 @@ export async function apiSearchBookmarks(text: string, limit = 10): Promise<ApiB
 }
 
 /**
+ * Fetch enriched data for a list of URLs by searching the API for each.
+ * Used to backfill local items that don't have titles yet.
+ * Returns all bookmarks found.
+ */
+export async function apiFetchEnrichedData(urls: string[]): Promise<ApiBookmark[]> {
+  const config = getApiConfig();
+  if (!config || urls.length === 0) return [];
+
+  const results: ApiBookmark[] = [];
+
+  // Search for each URL's hostname to find its enriched data
+  const uniqueHosts = [
+    ...new Set(
+      urls
+        .map((url) => {
+          try {
+            return new URL(url).hostname.replace("www.", "");
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean),
+    ),
+  ] as string[];
+
+  for (const host of uniqueHosts) {
+    try {
+      const params = new URLSearchParams({
+        workspaceId: config.workspaceId,
+        memberId: config.memberId,
+        text: host,
+        limit: "50",
+      });
+
+      const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
+        headers: { "X-API-Key": config.apiKey },
+      });
+
+      if (response.ok) {
+        const bookmarks = (await response.json()) as ApiBookmark[];
+        results.push(...bookmarks);
+      }
+    } catch {
+      // continue with next host
+    }
+  }
+
+  return results;
+}
+
+/**
  * Check if the API is configured.
  */
 export function isApiConfigured(): boolean {

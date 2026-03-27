@@ -15,7 +15,7 @@ import {
 import { useSQL } from "@raycast/utils";
 import { useEffect, useRef, useState } from "react";
 import { getDbPath, initDatabase, deleteUrl, saveUrl, enrichUrl, buildSearchQuery } from "./lib/db";
-import { apiSaveBookmark, apiSearchBookmarks, isApiConfigured } from "./lib/api";
+import { apiSaveBookmark, apiSearchBookmarks, apiFetchEnrichedData, isApiConfigured } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
 import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
@@ -143,6 +143,34 @@ export default function Command() {
       }
     })();
   }, []);
+
+  // Background enrichment: fetch API data for local items missing titles
+  const enrichmentDone = useRef(false);
+  useEffect(() => {
+    if (enrichmentDone.current || !data || data.length === 0 || !isApiConfigured()) return;
+    const unenriched = data.filter((entry) => !entry.title);
+    if (unenriched.length === 0) {
+      enrichmentDone.current = true;
+      return;
+    }
+    enrichmentDone.current = true;
+
+    (async () => {
+      const urls = unenriched.map((e) => e.url);
+      const apiBookmarks = await apiFetchEnrichedData(urls);
+      const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
+
+      let enriched = false;
+      for (const entry of unenriched) {
+        const match = apiByUrl.get(entry.url);
+        if (match && match.title && match.title !== match.url) {
+          enrichUrl(entry.url, match.title, match.description, match.tags);
+          enriched = true;
+        }
+      }
+      if (enriched) revalidate();
+    })();
+  }, [data]);
 
   // Background API search when query changes
   useEffect(() => {
