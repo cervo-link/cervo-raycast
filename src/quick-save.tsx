@@ -12,7 +12,7 @@ export default async function Command() {
     return;
   }
 
-  const result = await saveUrl(clipboardText);
+  const result = saveUrl(clipboardText);
 
   switch (result.type) {
     case "saved": {

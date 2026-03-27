@@ -21,7 +21,7 @@ export default function Command() {
       return;
     }
 
-    const result = await saveUrl(raw);
+    const result = saveUrl(raw);
 
     switch (result.type) {
       case "saved":

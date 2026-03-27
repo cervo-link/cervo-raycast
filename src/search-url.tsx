@@ -13,7 +13,7 @@ import {
   Keyboard,
 } from "@raycast/api";
 import { useSQL } from "@raycast/utils";
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getDbPath, initDatabase, deleteUrl, saveUrl, buildSearchQuery } from "./lib/db";
 import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
@@ -25,33 +25,31 @@ export default function Command() {
   const clipboardChecked = useRef(false);
 
   // Ensure database exists before querying
-  const [dbReady, setDbReady] = useState(false);
-  useEffect(() => {
-    initDatabase().then(() => setDbReady(true));
-  }, []);
+  initDatabase();
+
+  const query = buildSearchQuery(searchText);
+  const { data, isLoading, revalidate } = useSQL<UrlEntry>(getDbPath(), query);
 
   // Auto-save clipboard URL on launch
   useEffect(() => {
-    if (!dbReady || clipboardChecked.current || !prefs.autoSaveClipboard) return;
+    if (clipboardChecked.current || !prefs.autoSaveClipboard) return;
     clipboardChecked.current = true;
 
     (async () => {
       const text = await Clipboard.readText();
       if (!text || !looksLikeUrl(text)) return;
 
-      const result = await saveUrl(text);
+      const result = saveUrl(text);
       if (result.type === "saved") {
         const host = new URL(result.url).hostname;
         await showToast({ style: Toast.Style.Success, title: "Saved from clipboard", message: host });
         if (prefs.clearClipboardAfterSave) {
           await Clipboard.clear();
         }
+        revalidate();
       }
     })();
-  }, [dbReady]);
-
-  const query = buildSearchQuery(searchText);
-  const { data, isLoading, revalidate } = useSQL<UrlEntry>(getDbPath(), query);
+  }, []);
 
   async function handleDelete(entry: UrlEntry) {
     const confirmed = await confirmAlert({
@@ -64,7 +62,7 @@ export default function Command() {
     });
 
     if (confirmed) {
-      await deleteUrl(entry.id);
+      deleteUrl(entry.id);
       await showToast({ style: Toast.Style.Success, title: "Deleted", message: entry.url });
       revalidate();
     }
@@ -74,7 +72,7 @@ export default function Command() {
 
   return (
     <List
-      isLoading={isLoading || !dbReady}
+      isLoading={isLoading}
       searchBarPlaceholder="Search saved URLs..."
       onSearchTextChange={setSearchText}
       filtering={false}

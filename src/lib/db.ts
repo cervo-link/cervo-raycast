@@ -1,5 +1,6 @@
 import { environment } from "@raycast/api";
-import { executeSQL } from "@raycast/utils";
+import { execFileSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import { normalizeUrl } from "./url";
 import { SaveResult } from "./types";
@@ -10,49 +11,59 @@ export function getDbPath(): string {
   return DB_PATH;
 }
 
-export async function initDatabase(): Promise<void> {
-  await executeSQL(
-    DB_PATH,
-    `
+/**
+ * Run a write (or read) SQL query using sqlite3 CLI directly.
+ * executeSQL from @raycast/utils opens databases read-only,
+ * so we need this for CREATE TABLE, INSERT, DELETE operations.
+ */
+function runSQL<T = Record<string, unknown>>(query: string): T[] {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  const result = execFileSync("/usr/bin/sqlite3", ["-json", "-readonly", "false", DB_PATH, query], {
+    encoding: "utf-8",
+    timeout: 5000,
+  });
+  const trimmed = result.trim();
+  if (!trimmed) return [];
+  return JSON.parse(trimmed) as T[];
+}
+
+let dbInitialized = false;
+
+export function initDatabase(): void {
+  if (dbInitialized) return;
+  runSQL(`
     CREATE TABLE IF NOT EXISTS urls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `,
-  );
-  await executeSQL(
-    DB_PATH,
-    `
-    CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC)
-  `,
-  );
+    );
+    CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);
+  `);
+  dbInitialized = true;
 }
 
-export async function saveUrl(raw: string): Promise<SaveResult> {
+export function saveUrl(raw: string): SaveResult {
   const normalized = normalizeUrl(raw);
   if (!normalized) {
     return { type: "invalid" };
   }
 
-  await initDatabase();
+  initDatabase();
+
+  const escaped = normalized.replace(/'/g, "''");
 
   // Try to insert; INSERT OR IGNORE silently skips duplicates
-  await executeSQL(DB_PATH, `INSERT OR IGNORE INTO urls (url) VALUES ('${normalized.replace(/'/g, "''")}')`);
+  runSQL(`INSERT OR IGNORE INTO urls (url) VALUES ('${escaped}')`);
 
   // Check if this URL exists (either just inserted or already existed)
-  const rows = await executeSQL<{ id: number; url: string }>(
-    DB_PATH,
-    `SELECT id, url FROM urls WHERE url = '${normalized.replace(/'/g, "''")}'`,
-  );
+  const rows = runSQL<{ id: number; url: string }>(`SELECT id, url FROM urls WHERE url = '${escaped}'`);
 
   if (rows.length === 0) {
     return { type: "invalid" };
   }
 
   // Determine if it was a new insert by checking if created_at is very recent (within last 2 seconds)
-  const check = await executeSQL<{ is_new: number }>(
-    DB_PATH,
+  const check = runSQL<{ is_new: number }>(
     `SELECT (julianday('now') - julianday(created_at)) * 86400 < 2 AS is_new FROM urls WHERE id = ${rows[0].id}`,
   );
 
@@ -63,13 +74,13 @@ export async function saveUrl(raw: string): Promise<SaveResult> {
     : { type: "duplicate", id: rows[0].id, url: rows[0].url };
 }
 
-export async function deleteUrl(id: number): Promise<void> {
-  await initDatabase();
-  await executeSQL(DB_PATH, `DELETE FROM urls WHERE id = ${id}`);
+export function deleteUrl(id: number): void {
+  initDatabase();
+  runSQL(`DELETE FROM urls WHERE id = ${id}`);
 }
 
 /**
- * Builds the SQL query string for useSQL hook.
+ * Builds the SQL query string for useSQL hook (read-only).
  * useSQL needs the raw query; it handles execution internally.
  */
 export function buildSearchQuery(query?: string): string {
