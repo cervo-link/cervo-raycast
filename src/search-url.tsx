@@ -561,6 +561,12 @@ export default function Command() {
                   <List.Item.Detail.Metadata>
                     <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
                     <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
+                    {item.workspaceId && (
+                      <List.Item.Detail.Metadata.Label
+                        title="Workspace"
+                        text={workspaces.find((ws) => ws.id === item.workspaceId)?.name || item.workspaceId}
+                      />
+                    )}
                     {item.status === "failed" && (
                       <List.Item.Detail.Metadata.Label
                         title="Status"
