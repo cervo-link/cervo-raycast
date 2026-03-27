@@ -208,35 +208,33 @@ const ALL_WORKSPACES_VALUE = "__all__";
 function WorkspaceDropdown(props: {
   workspaces: Workspace[];
   apiConfigured: boolean;
+  isLoading: boolean;
   onWorkspaceChange: (workspaceId: string) => void;
 }) {
-  if (!props.apiConfigured) {
-    return (
-      <List.Dropdown tooltip="Workspace" storeValue onChange={() => {}}>
-        <List.Dropdown.Item title="Configure API to use workspaces" value="" />
-      </List.Dropdown>
-    );
-  }
-
-  if (props.workspaces.length === 0) {
-    return (
-      <List.Dropdown tooltip="Workspace" storeValue onChange={() => {}}>
-        <List.Dropdown.Item title="Loading workspaces..." value="" />
-      </List.Dropdown>
-    );
-  }
-
   return (
-    <List.Dropdown tooltip="Workspace" storeValue onChange={props.onWorkspaceChange}>
-      <List.Dropdown.Section>
-        <List.Dropdown.Item title="All Workspaces" value={ALL_WORKSPACES_VALUE} icon={Icon.Globe} />
-        {props.workspaces.map((ws) => (
-          <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
-        ))}
-      </List.Dropdown.Section>
-      <List.Dropdown.Section>
-        <List.Dropdown.Item title="+ Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
-      </List.Dropdown.Section>
+    <List.Dropdown
+      tooltip="Workspace"
+      storeValue
+      isLoading={props.isLoading}
+      onChange={props.apiConfigured ? props.onWorkspaceChange : () => {}}
+    >
+      {!props.apiConfigured ? (
+        <List.Dropdown.Item title="Configure API to use workspaces" value="" />
+      ) : props.workspaces.length === 0 ? (
+        <List.Dropdown.Item title="Loading workspaces..." value="" />
+      ) : (
+        <>
+          <List.Dropdown.Section>
+            <List.Dropdown.Item title="All Workspaces" value={ALL_WORKSPACES_VALUE} icon={Icon.Globe} />
+            {props.workspaces.map((ws) => (
+              <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
+            ))}
+          </List.Dropdown.Section>
+          <List.Dropdown.Section>
+            <List.Dropdown.Item title="+ Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
+          </List.Dropdown.Section>
+        </>
+      )}
     </List.Dropdown>
   );
 }
@@ -535,6 +533,7 @@ export default function Command() {
         <WorkspaceDropdown
           workspaces={workspaces}
           apiConfigured={apiConfigured}
+          isLoading={apiConfigured && workspaces.length === 0}
           onWorkspaceChange={handleWorkspaceChange}
         />
       }
