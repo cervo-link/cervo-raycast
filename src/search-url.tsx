@@ -200,20 +200,16 @@ export default function Command() {
     })();
   }, []);
 
-  // Background enrichment: fetch API data for local items missing titles
-  const enrichmentDone = useRef(false);
+  // Poll API for processing items every 5 seconds until all resolved
   useEffect(() => {
-    if (enrichmentDone.current || !data || data.length === 0 || !isApiConfigured()) return;
-    const needsUpdate = data.filter(
-      (entry) => !entry.api_status || entry.api_status === "submitted" || entry.api_status === "processing",
-    );
-    if (needsUpdate.length === 0) {
-      enrichmentDone.current = true;
-      return;
-    }
-    enrichmentDone.current = true;
+    if (!data || data.length === 0 || !isApiConfigured()) return;
 
-    (async () => {
+    async function pollEnrichment() {
+      const needsUpdate = (data || []).filter(
+        (entry) => !entry.api_status || entry.api_status === "submitted" || entry.api_status === "processing",
+      );
+      if (needsUpdate.length === 0) return false;
+
       const urls = needsUpdate.map((e) => e.url);
       const apiBookmarks = await apiFetchEnrichedData(urls);
       const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
@@ -233,7 +229,31 @@ export default function Command() {
         }
       }
       if (updated) revalidate();
-    })();
+
+      // Return true if there are still items processing
+      return needsUpdate.some((entry) => {
+        const match = apiByUrl.get(entry.url);
+        return !match || match.status === "submitted" || match.status === "processing";
+      });
+    }
+
+    let timer: NodeJS.Timeout;
+    let cancelled = false;
+
+    // Run immediately, then poll every 5s if items still processing
+    pollEnrichment().then((stillProcessing) => {
+      if (cancelled || !stillProcessing) return;
+      timer = setInterval(async () => {
+        if (cancelled) return;
+        const still = await pollEnrichment();
+        if (!still && timer) clearInterval(timer);
+      }, 5000);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
   }, [data]);
 
   // Background API search when query changes
