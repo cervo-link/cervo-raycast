@@ -1,6 +1,7 @@
 export function relativeTime(isoDate: string): string {
   const now = Date.now();
-  const then = new Date(`${isoDate}Z`).getTime();
+  const dateStr = isoDate.endsWith("Z") || isoDate.includes("+") ? isoDate : `${isoDate}Z`;
+  const then = new Date(dateStr).getTime();
   const diffSeconds = Math.floor((now - then) / 1000);
 
   if (diffSeconds < 60) {
