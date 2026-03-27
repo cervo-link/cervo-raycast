@@ -15,7 +15,13 @@ import {
 import { useSQL } from "@raycast/utils";
 import { useEffect, useRef, useState } from "react";
 import { getDbPath, initDatabase, deleteUrl, saveUrl, enrichUrl, buildSearchQuery } from "./lib/db";
-import { apiSaveBookmark, apiSearchBookmarks, apiFetchEnrichedData, isApiConfigured } from "./lib/api";
+import {
+  apiSaveBookmark,
+  apiSearchBookmarks,
+  apiFetchEnrichedData,
+  apiDeleteBookmark,
+  isApiConfigured,
+} from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
 import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
@@ -209,6 +215,8 @@ export default function Command() {
     if (confirmed) {
       deleteUrl(item.localId);
       await showToast({ style: Toast.Style.Success, title: "Deleted", message: item.url });
+      // Sync delete to API in background
+      apiDeleteBookmark(item.url);
       revalidate();
     }
   }
