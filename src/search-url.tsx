@@ -300,7 +300,7 @@ export default function Command() {
             key={item.key}
             icon={getStatusIcon(item.status)}
             title={item.title}
-            accessories={[{ tag: { value: item.status, color: getStatusColor(item.status) } }, { text: item.timeText }]}
+            accessories={[{ text: item.timeText }]}
             detail={
               <List.Item.Detail
                 markdown={buildDetailMarkdown(item)}
