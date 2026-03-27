@@ -15,15 +15,16 @@ function getApiConfig(): { apiUrl: string; apiKey: string; workspaceId: string; 
 }
 
 /**
- * Save a bookmark to the Cervo API (fire-and-forget).
- * Returns silently on failure -- local save is the source of truth.
+ * Save a bookmark to the Cervo API.
+ * Returns true if synced successfully, false otherwise.
+ * Local save is always the source of truth.
  */
-export async function apiSaveBookmark(url: string): Promise<void> {
+export async function apiSaveBookmark(url: string): Promise<boolean> {
   const config = getApiConfig();
-  if (!config) return;
+  if (!config) return false;
 
   try {
-    await fetch(`${config.apiUrl}/bookmarks`, {
+    const response = await fetch(`${config.apiUrl}/bookmarks`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -36,8 +37,9 @@ export async function apiSaveBookmark(url: string): Promise<void> {
         source: "raycast",
       }),
     });
+    return response.ok || response.status === 201;
   } catch {
-    // Silently fail -- local save is the source of truth
+    return false;
   }
 }
 

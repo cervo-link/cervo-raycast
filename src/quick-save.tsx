@@ -1,6 +1,6 @@
-import { Clipboard, showHUD, getPreferenceValues } from "@raycast/api";
+import { Clipboard, showHUD, showToast, Toast, getPreferenceValues } from "@raycast/api";
 import { saveUrl } from "./lib/db";
-import { apiSaveBookmark } from "./lib/api";
+import { apiSaveBookmark, isApiConfigured } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { Preferences } from "./lib/types";
 
@@ -22,8 +22,15 @@ export default async function Command() {
       if (prefs.clearClipboardAfterSave) {
         await Clipboard.clear();
       }
-      // Sync to API in background (fire-and-forget)
-      apiSaveBookmark(result.url);
+      // Sync to API in background with feedback
+      if (isApiConfigured()) {
+        const synced = await apiSaveBookmark(result.url);
+        if (synced) {
+          await showToast({ style: Toast.Style.Success, title: "Synced to Cervo API", message: host });
+        } else {
+          await showToast({ style: Toast.Style.Failure, title: "API sync failed", message: "Saved locally only" });
+        }
+      }
       break;
     }
     case "duplicate": {

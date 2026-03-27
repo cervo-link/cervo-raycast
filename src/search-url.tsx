@@ -24,7 +24,8 @@ interface DisplayItem {
   key: string;
   url: string;
   title: string;
-  subtitle?: string;
+  description?: string;
+  tags?: string[];
   timeText: string;
   matchedBecause?: string;
   localId?: number;
@@ -47,7 +48,8 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
     key: `api-${bookmark.id}`,
     url: bookmark.url,
     title: bookmark.title || bookmark.url,
-    subtitle: bookmark.description,
+    description: bookmark.description,
+    tags: bookmark.tags,
     timeText: relativeTime(bookmark.createdAt),
     matchedBecause: bookmark.matchedBecause,
     source: "api",
@@ -55,9 +57,54 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
 }
 
 function mergeResults(localItems: DisplayItem[], apiItems: DisplayItem[]): DisplayItem[] {
+  // Enrich local items with API data when URLs match
+  const apiByUrl = new Map(apiItems.map((item) => [item.url, item]));
+  const enrichedLocal = localItems.map((local) => {
+    const apiMatch = apiByUrl.get(local.url);
+    if (apiMatch) {
+      return {
+        ...local,
+        title: apiMatch.title || local.title,
+        description: apiMatch.description,
+        tags: apiMatch.tags,
+        matchedBecause: apiMatch.matchedBecause,
+        source: "local" as const,
+      };
+    }
+    return local;
+  });
+
+  // Add API-only items (not in local)
   const seenUrls = new Set(localItems.map((item) => item.url));
   const uniqueApiItems = apiItems.filter((item) => !seenUrls.has(item.url));
-  return [...localItems, ...uniqueApiItems];
+
+  return [...enrichedLocal, ...uniqueApiItems];
+}
+
+function buildDetailMarkdown(item: DisplayItem): string {
+  const parts: string[] = [];
+
+  if (item.title !== item.url) {
+    parts.push(`# ${item.title}`);
+  }
+
+  parts.push(`**URL:** ${item.url}`);
+
+  if (item.description) {
+    parts.push(`\n${item.description}`);
+  }
+
+  if (item.tags && item.tags.length > 0) {
+    parts.push(`\n**Tags:** ${item.tags.join(", ")}`);
+  }
+
+  if (item.matchedBecause) {
+    parts.push(`\n**Matched because:** ${item.matchedBecause}`);
+  }
+
+  parts.push(`\n*${item.source === "api" ? "Synced with Cervo API" : "Local only"}*`);
+
+  return parts.join("\n");
 }
 
 export default function Command() {
@@ -66,6 +113,7 @@ export default function Command() {
   const clipboardChecked = useRef(false);
   const [apiResults, setApiResults] = useState<DisplayItem[]>([]);
   const [apiLoading, setApiLoading] = useState(false);
+  const hasApiResults = apiResults.length > 0;
 
   // Ensure database exists before querying
   initDatabase();
@@ -89,7 +137,6 @@ export default function Command() {
         if (prefs.clearClipboardAfterSave) {
           await Clipboard.clear();
         }
-        // Sync to API in background
         apiSaveBookmark(result.url);
         revalidate();
       }
@@ -143,6 +190,7 @@ export default function Command() {
   return (
     <List
       isLoading={isLoading || apiLoading}
+      isShowingDetail={hasApiResults}
       searchBarPlaceholder="Search saved URLs..."
       onSearchTextChange={setSearchText}
       filtering={false}
@@ -151,36 +199,64 @@ export default function Command() {
       {items.length === 0 && !isLoading && !apiLoading ? (
         <List.EmptyView title="No saved URLs yet" description="Use Quick Save to add URLs" icon={Icon.Globe} />
       ) : (
-        items.map((item) => (
-          <List.Item
-            key={item.key}
-            title={item.title}
-            subtitle={item.matchedBecause}
-            accessories={[
-              ...(item.source === "api" && item.title !== item.url ? [{ tag: "AI" }] : []),
-              { text: item.timeText },
-            ]}
-            actions={
-              <ActionPanel>
-                <Action.OpenInBrowser url={item.url} onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined} />
-                <Action.CopyToClipboard
-                  content={item.url}
-                  shortcut={Keyboard.Shortcut.Common.Copy}
-                  onCopy={prefs.closeAfterAction ? () => popToRoot() : undefined}
-                />
-                {item.localId && (
-                  <Action
-                    title="Delete URL"
-                    icon={Icon.Trash}
-                    style={Action.Style.Destructive}
-                    shortcut={Keyboard.Shortcut.Common.Remove}
-                    onAction={() => handleDelete(item)}
+        items.map((item) => {
+          const hasEnrichedData = item.description || item.matchedBecause || (item.tags && item.tags.length > 0);
+
+          return (
+            <List.Item
+              key={item.key}
+              title={item.title}
+              subtitle={hasApiResults ? undefined : item.url !== item.title ? item.url : undefined}
+              accessories={hasApiResults ? undefined : [{ text: item.timeText }]}
+              detail={
+                hasApiResults ? (
+                  <List.Item.Detail
+                    markdown={hasEnrichedData ? buildDetailMarkdown(item) : `**URL:** ${item.url}\n\n*Local only*`}
+                    metadata={
+                      <List.Item.Detail.Metadata>
+                        <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
+                        <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
+                        <List.Item.Detail.Metadata.Label
+                          title="Source"
+                          text={item.source === "api" ? "Cervo API" : "Local"}
+                        />
+                        {item.tags && item.tags.length > 0 && (
+                          <List.Item.Detail.Metadata.TagList title="Tags">
+                            {item.tags.map((tag) => (
+                              <List.Item.Detail.Metadata.TagList.Item key={tag} text={tag} />
+                            ))}
+                          </List.Item.Detail.Metadata.TagList>
+                        )}
+                      </List.Item.Detail.Metadata>
+                    }
                   />
-                )}
-              </ActionPanel>
-            }
-          />
-        ))
+                ) : undefined
+              }
+              actions={
+                <ActionPanel>
+                  <Action.OpenInBrowser
+                    url={item.url}
+                    onOpen={prefs.closeAfterAction ? () => popToRoot() : undefined}
+                  />
+                  <Action.CopyToClipboard
+                    content={item.url}
+                    shortcut={Keyboard.Shortcut.Common.Copy}
+                    onCopy={prefs.closeAfterAction ? () => popToRoot() : undefined}
+                  />
+                  {item.localId && (
+                    <Action
+                      title="Delete URL"
+                      icon={Icon.Trash}
+                      style={Action.Style.Destructive}
+                      shortcut={Keyboard.Shortcut.Common.Remove}
+                      onAction={() => handleDelete(item)}
+                    />
+                  )}
+                </ActionPanel>
+              }
+            />
+          );
+        })
       )}
     </List>
   );
