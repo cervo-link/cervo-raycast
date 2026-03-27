@@ -1,5 +1,6 @@
 import { Clipboard, showHUD, getPreferenceValues } from "@raycast/api";
 import { saveUrl } from "./lib/db";
+import { apiSaveBookmark } from "./lib/api";
 import { looksLikeUrl } from "./lib/url";
 import { Preferences } from "./lib/types";
 
@@ -21,6 +22,8 @@ export default async function Command() {
       if (prefs.clearClipboardAfterSave) {
         await Clipboard.clear();
       }
+      // Sync to API in background (fire-and-forget)
+      apiSaveBookmark(result.url);
       break;
     }
     case "duplicate": {

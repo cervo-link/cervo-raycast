@@ -56,6 +56,34 @@
       "default": true,
       "required": false,
       "label": "Close After Action"
+    },
+    {
+      "name": "apiUrl",
+      "title": "Cervo API URL",
+      "description": "Base URL of your Cervo API (e.g. https://api.cervo.link). Leave empty to use local-only mode.",
+      "type": "textfield",
+      "required": false
+    },
+    {
+      "name": "apiKey",
+      "title": "API Key",
+      "description": "API key for authenticating with the Cervo API",
+      "type": "password",
+      "required": false
+    },
+    {
+      "name": "workspaceId",
+      "title": "Workspace ID",
+      "description": "UUID of the workspace to save bookmarks to",
+      "type": "textfield",
+      "required": false
+    },
+    {
+      "name": "memberId",
+      "title": "Member ID",
+      "description": "Your member UUID in the Cervo API",
+      "type": "textfield",
+      "required": false
     }
   ],
   "dependencies": {

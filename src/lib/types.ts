@@ -4,6 +4,17 @@ export interface UrlEntry {
   created_at: string;
 }
 
+export interface ApiBookmark {
+  id: string;
+  url: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  status: string;
+  createdAt: string;
+  matchedBecause?: string;
+}
+
 export type SaveResult =
   | { type: "saved"; id: number; url: string }
   | { type: "duplicate"; id: number; url: string }
@@ -13,4 +24,8 @@ export interface Preferences {
   autoSaveClipboard: boolean;
   clearClipboardAfterSave: boolean;
   closeAfterAction: boolean;
+  apiUrl?: string;
+  apiKey?: string;
+  workspaceId?: string;
+  memberId?: string;
 }
