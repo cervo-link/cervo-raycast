@@ -61,13 +61,22 @@ function getStatusIcon(status: ItemStatus): { source: Icon; tintColor: Color } {
   return { source: Icon.CircleFilled, tintColor: getStatusColor(status) };
 }
 
+function isOlderThan3Min(isoDate: string): boolean {
+  const dateStr = isoDate.endsWith("Z") || isoDate.includes("+") ? isoDate : `${isoDate}Z`;
+  return Date.now() - new Date(dateStr).getTime() > 3 * 60 * 1000;
+}
+
 function resolveStatus(entry: UrlEntry, apiConfigured: boolean): ItemStatus {
   const apiStatus = entry.api_status;
   if (apiStatus === "ready") return "ready";
   if (apiStatus === "failed") return "failed";
-  if (apiStatus === "processing" || apiStatus === "submitted") return "processing";
+  if (apiStatus === "processing" || apiStatus === "submitted") {
+    return isOlderThan3Min(entry.created_at) ? "failed" : "processing";
+  }
   if (entry.title) return "ready";
-  if (apiConfigured) return "processing";
+  if (apiConfigured) {
+    return isOlderThan3Min(entry.created_at) ? "failed" : "processing";
+  }
   return "local";
 }
 
