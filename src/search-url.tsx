@@ -279,6 +279,8 @@ export default function Command() {
   const queryWorkspaceIds = isAllWorkspaces ? workspaces.map((ws) => ws.id) : selectedWorkspaceId;
   const defaultWorkspaceId = isAllWorkspaces ? workspaces[0]?.id : selectedWorkspaceId;
 
+  const pollCount = useRef(0);
+
   initDatabase();
 
   function handleWorkspaceChange(workspaceId: string) {
@@ -306,6 +308,9 @@ export default function Command() {
     } else {
       setSelectedWorkspaceId(workspaceId);
       lastRealWorkspaceId.current = workspaceId;
+      // Reset state so enrichment and search re-run for new workspace
+      setApiResults([]);
+      pollCount.current = 0;
     }
   }
 
@@ -352,7 +357,6 @@ export default function Command() {
   }, [selectedWorkspaceId]);
 
   // Poll API for processing items every 5 seconds until all resolved
-  const pollCount = useRef(0);
   useEffect(() => {
     if (!data || data.length === 0 || !apiConfigured || !selectedWorkspaceId) return;
 
