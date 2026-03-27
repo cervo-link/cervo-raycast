@@ -280,7 +280,7 @@ export default function Command() {
   // Resolve workspace IDs for API queries (single ID or all IDs)
   const isAllWorkspaces = selectedWorkspaceId === ALL_WORKSPACES_VALUE;
   const queryWorkspaceIds = isAllWorkspaces ? workspaces.map((ws) => ws.id) : selectedWorkspaceId;
-  const defaultWorkspaceId = isAllWorkspaces ? workspaces[0]?.id : selectedWorkspaceId;
+  const defaultWorkspaceId = isAllWorkspaces ? workspaces[0]?.id : selectedWorkspaceId || undefined;
 
   const pollCount = useRef(0);
 

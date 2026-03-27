@@ -26,37 +26,54 @@ let dbInitialized = false;
 
 export function initDatabase(): void {
   if (dbInitialized) return;
-  // Create table (basic schema for fresh installs)
-  runSQL(`
-    CREATE TABLE IF NOT EXISTS urls (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      url TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-  // Migrate: add columns if they don't exist (for existing databases)
-  const migrations = [
-    "title TEXT",
-    "description TEXT",
-    "tags TEXT",
-    "api_status TEXT",
-    "api_bookmark_id TEXT",
-    "workspace_id TEXT",
-  ];
-  for (const col of migrations) {
-    try {
-      runSQL(`ALTER TABLE urls ADD COLUMN ${col};`);
-    } catch {
-      /* column already exists */
-    }
+
+  // Check if old table with UNIQUE(url) exists and migrate it
+  const tableInfo = runSQL<{ sql: string }>(`SELECT sql FROM sqlite_master WHERE type='table' AND name='urls';`);
+  const needsRecreate = tableInfo.length > 0 && tableInfo[0].sql.includes("url TEXT NOT NULL UNIQUE");
+
+  if (needsRecreate) {
+    // Recreate table without the old UNIQUE(url) constraint
+    runSQL(`
+      CREATE TABLE IF NOT EXISTS urls_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        workspace_id TEXT,
+        title TEXT,
+        description TEXT,
+        tags TEXT,
+        api_status TEXT,
+        api_bookmark_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO urls_new (id, url, workspace_id, title, description, tags, api_status, api_bookmark_id, created_at)
+        SELECT id, url, workspace_id, title, description, tags, api_status, api_bookmark_id, created_at FROM urls;
+      DROP TABLE urls;
+      ALTER TABLE urls_new RENAME TO urls;
+    `);
+  } else {
+    // Fresh install
+    runSQL(`
+      CREATE TABLE IF NOT EXISTS urls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        workspace_id TEXT,
+        title TEXT,
+        description TEXT,
+        tags TEXT,
+        api_status TEXT,
+        api_bookmark_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
   }
-  // Create indexes after all columns exist
+
+  // Indexes
   runSQL(`CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);`);
   runSQL(`CREATE INDEX IF NOT EXISTS idx_urls_workspace ON urls(workspace_id);`);
   try {
     runSQL(`CREATE UNIQUE INDEX IF NOT EXISTS idx_urls_url_workspace ON urls(url, workspace_id);`);
   } catch {
-    /* already exists or conflicts with old constraint */
+    /* already exists */
   }
   dbInitialized = true;
 }
