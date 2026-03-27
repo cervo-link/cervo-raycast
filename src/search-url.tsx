@@ -10,6 +10,7 @@ import {
   showToast,
   Toast,
   Clipboard,
+  LocalStorage,
   getPreferenceValues,
   popToRoot,
   useNavigation,
@@ -205,23 +206,26 @@ function buildDetailMarkdown(item: DisplayItem): string {
 const CREATE_WORKSPACE_VALUE = "__create__";
 const ALL_WORKSPACES_VALUE = "__all__";
 
+const WORKSPACE_STORAGE_KEY = "cervo-selected-workspace";
+
 function WorkspaceDropdown(props: {
   workspaces: Workspace[];
   apiConfigured: boolean;
   isLoading: boolean;
+  selectedValue: string;
   onWorkspaceChange: (workspaceId: string) => void;
 }) {
   return (
     <List.Dropdown
       tooltip="Workspace"
-      storeValue
       isLoading={props.isLoading}
+      value={props.selectedValue}
       onChange={props.apiConfigured ? props.onWorkspaceChange : () => {}}
     >
       {!props.apiConfigured ? (
         <List.Dropdown.Item title="Configure API to use workspaces" value="" />
       ) : props.workspaces.length === 0 ? (
-        <List.Dropdown.Item title="Loading workspaces..." value="" />
+        <List.Dropdown.Item title="Loading workspaces..." value={props.selectedValue || ""} />
       ) : (
         <>
           <List.Dropdown.Section>
@@ -279,8 +283,9 @@ export default function Command() {
   const [apiResults, setApiResults] = useState<DisplayItem[]>([]);
   const [apiLoading, setApiLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
-  const lastRealWorkspaceId = useRef<string>("");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(ALL_WORKSPACES_VALUE);
+  const lastRealWorkspaceId = useRef<string>(ALL_WORKSPACES_VALUE);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const apiConfigured = isApiConfigured();
 
   // Resolve workspace IDs for API queries (single ID or all IDs)
@@ -302,6 +307,7 @@ export default function Command() {
               setWorkspaces((prev) => [...prev, ws]);
               setSelectedWorkspaceId(ws.id);
               lastRealWorkspaceId.current = ws.id;
+              LocalStorage.setItem(WORKSPACE_STORAGE_KEY, ws.id);
               await showToast({ style: Toast.Style.Success, title: "Workspace created", message: name });
               pop();
             } else {
@@ -310,12 +316,12 @@ export default function Command() {
           }}
         />,
       );
-      // Restore previous workspace selection so the dropdown doesn't stay on "__create__"
       if (lastRealWorkspaceId.current) {
         setSelectedWorkspaceId(lastRealWorkspaceId.current);
       }
     } else {
       setSelectedWorkspaceId(workspaceId);
+      LocalStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
       lastRealWorkspaceId.current = workspaceId;
       // Reset state so enrichment and search re-run for new workspace
       setApiResults([]);
@@ -323,18 +329,26 @@ export default function Command() {
     }
   }
 
-  // Fetch workspaces on load and migrate orphaned URLs
+  // Fetch workspaces on load, restore saved selection, and migrate orphans
   const orphansMigrated = useRef(false);
   useEffect(() => {
     if (!apiConfigured) return;
-    apiFetchWorkspaces().then((ws) => {
+    (async () => {
+      const [ws, savedWorkspace] = await Promise.all([
+        apiFetchWorkspaces(),
+        LocalStorage.getItem<string>(WORKSPACE_STORAGE_KEY),
+      ]);
       setWorkspaces(ws);
-      // Assign orphaned URLs (no workspace) to the first workspace
+      if (savedWorkspace) {
+        setSelectedWorkspaceId(savedWorkspace);
+        lastRealWorkspaceId.current = savedWorkspace;
+      }
+      setWorkspaceLoaded(true);
       if (!orphansMigrated.current && ws.length > 0) {
         orphansMigrated.current = true;
         migrateOrphanedUrls(ws[0].id);
       }
-    });
+    })();
   }, []);
 
   const query = buildSearchQuery(
@@ -533,7 +547,8 @@ export default function Command() {
         <WorkspaceDropdown
           workspaces={workspaces}
           apiConfigured={apiConfigured}
-          isLoading={apiConfigured && workspaces.length === 0}
+          isLoading={apiConfigured && !workspaceLoaded}
+          selectedValue={selectedWorkspaceId}
           onWorkspaceChange={handleWorkspaceChange}
         />
       }
