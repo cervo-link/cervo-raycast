@@ -4,6 +4,7 @@ export interface UrlEntry {
   title: string | null;
   description: string | null;
   tags: string | null;
+  api_status: string | null;
   created_at: string;
 }
 

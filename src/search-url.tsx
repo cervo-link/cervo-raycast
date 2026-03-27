@@ -27,7 +27,7 @@ import { looksLikeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
 import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
 
-type ItemStatus = "ready" | "processing" | "local";
+type ItemStatus = "ready" | "processing" | "failed" | "local";
 
 interface DisplayItem {
   key: string;
@@ -48,6 +48,8 @@ function getStatusColor(status: ItemStatus): Color {
       return Color.Green;
     case "processing":
       return Color.Yellow;
+    case "failed":
+      return Color.Red;
     case "local":
       return Color.SecondaryText;
   }
@@ -57,17 +59,20 @@ function getStatusIcon(status: ItemStatus): { source: Icon; tintColor: Color } {
   return { source: Icon.CircleFilled, tintColor: getStatusColor(status) };
 }
 
+function resolveStatus(entry: UrlEntry, apiConfigured: boolean): ItemStatus {
+  const apiStatus = entry.api_status;
+  if (apiStatus === "ready") return "ready";
+  if (apiStatus === "failed") return "failed";
+  if (apiStatus === "processing" || apiStatus === "submitted") return "processing";
+  // No api_status stored yet -- infer from data
+  if (entry.title) return "ready";
+  if (apiConfigured) return "processing";
+  return "local";
+}
+
 function localToDisplayItem(entry: UrlEntry, apiConfigured: boolean): DisplayItem {
   const tags = entry.tags ? entry.tags.split(",").filter(Boolean) : undefined;
-  const hasEnrichedData = !!entry.title;
-  let status: ItemStatus;
-  if (hasEnrichedData) {
-    status = "ready";
-  } else if (apiConfigured) {
-    status = "processing";
-  } else {
-    status = "local";
-  }
+  const status = resolveStatus(entry, apiConfigured);
 
   return {
     key: `local-${entry.id}`,
@@ -82,6 +87,13 @@ function localToDisplayItem(entry: UrlEntry, apiConfigured: boolean): DisplayIte
   };
 }
 
+function apiStatusToItemStatus(apiStatus: string): ItemStatus {
+  if (apiStatus === "ready") return "ready";
+  if (apiStatus === "failed") return "failed";
+  if (apiStatus === "processing" || apiStatus === "submitted") return "processing";
+  return "processing";
+}
+
 function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
   return {
     key: `api-${bookmark.id}`,
@@ -92,7 +104,7 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
     timeText: relativeTime(bookmark.createdAt),
     matchedBecause: bookmark.matchedBecause,
     source: "api",
-    status: "ready",
+    status: apiStatusToItemStatus(bookmark.status),
   };
 }
 
@@ -102,15 +114,22 @@ function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): Dis
   // Enrich local items with API data and cache it to SQLite
   const enrichedLocal = localItems.map((local) => {
     const apiMatch = apiByUrl.get(local.url);
-    if (apiMatch && apiMatch.title !== apiMatch.url) {
-      // Cache enriched data locally
-      enrichUrl(local.url, apiMatch.title, apiMatch.description, apiMatch.tags);
+    if (apiMatch) {
+      // Cache enriched data and status locally
+      enrichUrl(
+        local.url,
+        apiMatch.title !== apiMatch.url ? apiMatch.title : undefined,
+        apiMatch.description,
+        apiMatch.tags,
+        apiMatch.status,
+      );
       return {
         ...local,
         title: apiMatch.title,
         description: apiMatch.description,
         tags: apiMatch.tags,
         matchedBecause: apiMatch.matchedBecause,
+        status: apiMatch.status,
       };
     }
     return local;
@@ -185,27 +204,35 @@ export default function Command() {
   const enrichmentDone = useRef(false);
   useEffect(() => {
     if (enrichmentDone.current || !data || data.length === 0 || !isApiConfigured()) return;
-    const unenriched = data.filter((entry) => !entry.title);
-    if (unenriched.length === 0) {
+    const needsUpdate = data.filter(
+      (entry) => !entry.api_status || entry.api_status === "submitted" || entry.api_status === "processing",
+    );
+    if (needsUpdate.length === 0) {
       enrichmentDone.current = true;
       return;
     }
     enrichmentDone.current = true;
 
     (async () => {
-      const urls = unenriched.map((e) => e.url);
+      const urls = needsUpdate.map((e) => e.url);
       const apiBookmarks = await apiFetchEnrichedData(urls);
       const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
 
-      let enriched = false;
-      for (const entry of unenriched) {
+      let updated = false;
+      for (const entry of needsUpdate) {
         const match = apiByUrl.get(entry.url);
-        if (match && match.title && match.title !== match.url) {
-          enrichUrl(entry.url, match.title, match.description, match.tags);
-          enriched = true;
+        if (match) {
+          enrichUrl(
+            entry.url,
+            match.title && match.title !== match.url ? match.title : undefined,
+            match.description,
+            match.tags,
+            match.status,
+          );
+          updated = true;
         }
       }
-      if (enriched) revalidate();
+      if (updated) revalidate();
     })();
   }, [data]);
 
