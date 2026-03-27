@@ -18,7 +18,7 @@ export function getDbPath(): string {
  */
 function runSQL<T = Record<string, unknown>>(query: string): T[] {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const result = execFileSync("/usr/bin/sqlite3", ["-json", "-readonly", "false", DB_PATH, query], {
+  const result = execFileSync("/usr/bin/sqlite3", ["-json", DB_PATH, query], {
     encoding: "utf-8",
     timeout: 5000,
   });
