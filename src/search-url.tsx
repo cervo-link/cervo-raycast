@@ -1,5 +1,6 @@
 import {
   List,
+  Form,
   ActionPanel,
   Action,
   Icon,
@@ -11,6 +12,7 @@ import {
   Clipboard,
   getPreferenceValues,
   popToRoot,
+  useNavigation,
   Keyboard,
 } from "@raycast/api";
 import { useSQL } from "@raycast/utils";
@@ -21,6 +23,7 @@ import {
   apiSearchBookmarks,
   apiFetchEnrichedData,
   apiFetchWorkspaces,
+  apiCreateWorkspace,
   apiDeleteBookmark,
   apiRetryBookmark,
   isApiConfigured,
@@ -188,6 +191,8 @@ function buildDetailMarkdown(item: DisplayItem): string {
   return parts.join("\n");
 }
 
+const CREATE_WORKSPACE_VALUE = "__create__";
+
 function WorkspaceDropdown(props: {
   workspaces: Workspace[];
   apiConfigured: boolean;
@@ -211,24 +216,91 @@ function WorkspaceDropdown(props: {
 
   return (
     <List.Dropdown tooltip="Workspace" storeValue onChange={props.onWorkspaceChange}>
-      {props.workspaces.map((ws) => (
-        <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
-      ))}
+      <List.Dropdown.Section>
+        {props.workspaces.map((ws) => (
+          <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
+        ))}
+      </List.Dropdown.Section>
+      <List.Dropdown.Section>
+        <List.Dropdown.Item title="+ Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
+      </List.Dropdown.Section>
     </List.Dropdown>
+  );
+}
+
+function CreateWorkspaceForm(props: { onCreate: (name: string, description?: string) => void }) {
+  const [nameError, setNameError] = useState<string | undefined>();
+
+  return (
+    <Form
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm
+            title="Create Workspace"
+            onSubmit={(values: { name: string; description: string }) => {
+              if (!values.name.trim()) {
+                setNameError("Name is required");
+                return;
+              }
+              props.onCreate(values.name.trim(), values.description.trim() || undefined);
+            }}
+          />
+        </ActionPanel>
+      }
+    >
+      <Form.TextField
+        id="name"
+        title="Name"
+        placeholder="My Workspace"
+        error={nameError}
+        onChange={() => setNameError(undefined)}
+      />
+      <Form.TextField id="description" title="Description" placeholder="Optional description" />
+    </Form>
   );
 }
 
 export default function Command() {
   const prefs = getPreferenceValues<Preferences>();
+  const { push, pop } = useNavigation();
   const [searchText, setSearchText] = useState("");
   const clipboardChecked = useRef(false);
   const [apiResults, setApiResults] = useState<DisplayItem[]>([]);
   const [apiLoading, setApiLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
+  const lastRealWorkspaceId = useRef<string>("");
   const apiConfigured = isApiConfigured();
 
   initDatabase();
+
+  function handleWorkspaceChange(workspaceId: string) {
+    if (workspaceId === CREATE_WORKSPACE_VALUE) {
+      push(
+        <CreateWorkspaceForm
+          onCreate={async (name, description) => {
+            const ws = await apiCreateWorkspace(name, description);
+            if (ws) {
+              setWorkspaces((prev) => [...prev, ws]);
+              setSelectedWorkspaceId(ws.id);
+              lastRealWorkspaceId.current = ws.id;
+              await showToast({ style: Toast.Style.Success, title: "Workspace created", message: name });
+              pop();
+            } else {
+              await showToast({ style: Toast.Style.Failure, title: "Failed to create workspace" });
+            }
+          }}
+        />,
+      );
+      // Restore previous workspace selection so the dropdown doesn't stay on "__create__"
+      if (lastRealWorkspaceId.current) {
+        setSelectedWorkspaceId(lastRealWorkspaceId.current);
+      }
+    } else {
+      setSelectedWorkspaceId(workspaceId);
+      lastRealWorkspaceId.current = workspaceId;
+    }
+  }
 
   // Fetch workspaces on load
   useEffect(() => {
@@ -237,6 +309,7 @@ export default function Command() {
       setWorkspaces(ws);
       if (ws.length > 0 && !selectedWorkspaceId) {
         setSelectedWorkspaceId(ws[0].id);
+        lastRealWorkspaceId.current = ws[0].id;
       }
     });
   }, []);
@@ -434,7 +507,7 @@ export default function Command() {
         <WorkspaceDropdown
           workspaces={workspaces}
           apiConfigured={apiConfigured}
-          onWorkspaceChange={setSelectedWorkspaceId}
+          onWorkspaceChange={handleWorkspaceChange}
         />
       }
     >

@@ -43,6 +43,35 @@ export async function apiFetchWorkspaces(): Promise<Workspace[]> {
 }
 
 /**
+ * Create a new workspace via the API.
+ * Returns the created workspace, or null on failure.
+ */
+export async function apiCreateWorkspace(name: string, description?: string): Promise<Workspace | null> {
+  const config = getApiConfig();
+  if (!config) return null;
+
+  try {
+    const response = await fetch(`${config.apiUrl}/workspaces/create`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": config.apiKey,
+      },
+      body: JSON.stringify({
+        name,
+        description: description || undefined,
+        ownerId: config.memberId,
+      }),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Workspace;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Save a bookmark to the Cervo API.
  * Returns the API bookmark ID if synced successfully, null otherwise.
  */
