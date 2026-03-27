@@ -298,9 +298,8 @@ export default function Command() {
         items.map((item) => (
           <List.Item
             key={item.key}
-            icon={getStatusIcon(item.status)}
             title={item.title}
-            accessories={[{ text: item.timeText }]}
+            accessories={[{ icon: getStatusIcon(item.status) }, { text: item.timeText }]}
             detail={
               <List.Item.Detail
                 markdown={buildDetailMarkdown(item)}
