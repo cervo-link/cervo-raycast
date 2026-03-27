@@ -26,21 +26,13 @@ let dbInitialized = false;
 
 export function initDatabase(): void {
   if (dbInitialized) return;
+  // Create table (basic schema for fresh installs)
   runSQL(`
     CREATE TABLE IF NOT EXISTS urls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       url TEXT NOT NULL,
-      workspace_id TEXT,
-      title TEXT,
-      description TEXT,
-      tags TEXT,
-      api_status TEXT,
-      api_bookmark_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(url, workspace_id)
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_urls_workspace ON urls(workspace_id);
   `);
   // Migrate: add columns if they don't exist (for existing databases)
   const migrations = [
@@ -58,16 +50,13 @@ export function initDatabase(): void {
       /* column already exists */
     }
   }
-  // Migrate unique constraint: drop old url-only unique index if it exists
-  try {
-    runSQL(`DROP INDEX IF EXISTS sqlite_autoindex_urls_1;`);
-  } catch {
-    /* ignore */
-  }
+  // Create indexes after all columns exist
+  runSQL(`CREATE INDEX IF NOT EXISTS idx_urls_created_at ON urls(created_at DESC);`);
+  runSQL(`CREATE INDEX IF NOT EXISTS idx_urls_workspace ON urls(workspace_id);`);
   try {
     runSQL(`CREATE UNIQUE INDEX IF NOT EXISTS idx_urls_url_workspace ON urls(url, workspace_id);`);
   } catch {
-    /* already exists */
+    /* already exists or conflicts with old constraint */
   }
   dbInitialized = true;
 }
