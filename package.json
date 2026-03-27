@@ -15,17 +15,10 @@
   "license": "MIT",
   "commands": [
     {
-      "name": "quick-save",
-      "title": "Quick Save",
-      "subtitle": "Save URL from Clipboard",
-      "description": "Reads clipboard, validates URL, and saves it instantly",
-      "mode": "no-view"
-    },
-    {
       "name": "search-url",
-      "title": "Search URLs",
-      "subtitle": "Browse & search saved URLs",
-      "description": "Search, open, copy, and manage your saved URLs",
+      "title": "Cervo",
+      "subtitle": "Save & search URLs",
+      "description": "Save, search, open, copy, and manage your bookmarked URLs",
       "mode": "view"
     }
   ],

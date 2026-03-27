@@ -24,7 +24,7 @@ import {
   apiRetryBookmark,
   isApiConfigured,
 } from "./lib/api";
-import { looksLikeUrl } from "./lib/url";
+import { looksLikeUrl, normalizeUrl } from "./lib/url";
 import { relativeTime } from "./lib/time";
 import { UrlEntry, ApiBookmark, Preferences } from "./lib/types";
 
@@ -66,7 +66,6 @@ function resolveStatus(entry: UrlEntry, apiConfigured: boolean): ItemStatus {
   if (apiStatus === "ready") return "ready";
   if (apiStatus === "failed") return "failed";
   if (apiStatus === "processing" || apiStatus === "submitted") return "processing";
-  // No api_status stored yet -- infer from data
   if (entry.title) return "ready";
   if (apiConfigured) return "processing";
   return "local";
@@ -114,11 +113,9 @@ function apiToDisplayItem(bookmark: ApiBookmark): DisplayItem {
 function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): DisplayItem[] {
   const apiByUrl = new Map(apiItems.map((item) => [item.url, item]));
 
-  // Enrich local items with API data and cache it to SQLite
   const enrichedLocal = localItems.map((local) => {
     const apiMatch = apiByUrl.get(local.url);
     if (apiMatch) {
-      // Cache enriched data and status locally
       enrichUrl(
         local.url,
         apiMatch.title !== apiMatch.url ? apiMatch.title : undefined,
@@ -139,7 +136,6 @@ function mergeAndEnrich(localItems: DisplayItem[], apiItems: DisplayItem[]): Dis
     return local;
   });
 
-  // Add API-only items
   const seenUrls = new Set(localItems.map((item) => item.url));
   const uniqueApiItems = apiItems.filter((item) => !seenUrls.has(item.url));
 
@@ -198,7 +194,10 @@ export default function Command() {
         if (prefs.clearClipboardAfterSave) {
           await Clipboard.clear();
         }
-        apiSaveBookmark(result.url);
+        const apiBookmarkId = await apiSaveBookmark(result.url);
+        if (apiBookmarkId) {
+          enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+        }
         revalidate();
       }
     })();
@@ -239,7 +238,6 @@ export default function Command() {
             stillProcessing = true;
           }
         } else if (pollCount.current >= 6) {
-          // After ~30s (6 polls x 5s) with no API match, mark as failed
           enrichUrl(entry.url, undefined, undefined, undefined, "failed");
           updated = true;
         } else {
@@ -254,7 +252,6 @@ export default function Command() {
     let timer: NodeJS.Timeout;
     let cancelled = false;
 
-    // Run immediately, then poll every 5s if items still processing
     pollEnrichment().then((stillProcessing) => {
       if (cancelled || !stillProcessing) return;
       timer = setInterval(async () => {
@@ -292,9 +289,28 @@ export default function Command() {
     };
   }, [searchText]);
 
+  async function handleSaveFromSearch(url: string) {
+    const result = saveUrl(url);
+    if (result.type === "saved") {
+      const host = new URL(result.url).hostname;
+      await showToast({ style: Toast.Style.Success, title: "Link saved", message: host });
+      if (prefs.clearClipboardAfterSave) {
+        await Clipboard.clear();
+      }
+      const apiBookmarkId = await apiSaveBookmark(result.url);
+      if (apiBookmarkId) {
+        enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
+      }
+      revalidate();
+    } else if (result.type === "duplicate") {
+      await showToast({ style: Toast.Style.Success, title: "Already saved", message: result.url });
+    } else {
+      await showToast({ style: Toast.Style.Failure, title: "Invalid URL" });
+    }
+  }
+
   async function handleRetry(item: DisplayItem) {
     await showToast({ style: Toast.Style.Animated, title: "Reprocessing...", message: item.url });
-    // Reset local status to processing
     if (item.localId) {
       enrichUrl(item.url, undefined, undefined, undefined, "processing");
     }
@@ -323,7 +339,6 @@ export default function Command() {
     if (confirmed) {
       deleteUrl(item.localId);
       await showToast({ style: Toast.Style.Success, title: "Deleted", message: item.url });
-      // Sync delete to API in background
       apiDeleteBookmark(item.url);
       revalidate();
     }
@@ -333,17 +348,41 @@ export default function Command() {
   const localItems = (data || []).map((entry) => localToDisplayItem(entry, apiConfigured));
   const items = searchText.trim() ? mergeAndEnrich(localItems, apiResults) : localItems;
 
+  // Detect if search text is a URL that can be saved
+  const searchIsUrl = searchText.trim() && looksLikeUrl(searchText.trim()) && !!normalizeUrl(searchText.trim());
+
   return (
     <List
       isLoading={isLoading || apiLoading}
       isShowingDetail
-      searchBarPlaceholder="Search saved URLs..."
+      searchBarPlaceholder="Paste a URL to save or type to search..."
       onSearchTextChange={setSearchText}
       filtering={false}
       throttle
     >
-      {items.length === 0 && !isLoading && !apiLoading ? (
-        <List.EmptyView title="No saved URLs yet" description="Use Quick Save to add URLs" icon={Icon.Globe} />
+      {searchIsUrl && (
+        <List.Item
+          key="save-url"
+          icon={{ source: Icon.PlusCircle, tintColor: Color.Blue }}
+          title={`Save: ${searchText.trim()}`}
+          detail={<List.Item.Detail markdown={`**Save this URL:**\n\n${normalizeUrl(searchText.trim())}`} />}
+          actions={
+            <ActionPanel>
+              <Action
+                title="Save URL"
+                icon={Icon.PlusCircle}
+                onAction={() => handleSaveFromSearch(searchText.trim())}
+              />
+            </ActionPanel>
+          }
+        />
+      )}
+      {items.length === 0 && !isLoading && !apiLoading && !searchIsUrl ? (
+        <List.EmptyView
+          title="No saved URLs yet"
+          description="Paste a URL in the search bar to save it"
+          icon={Icon.Globe}
+        />
       ) : (
         items.map((item) => (
           <List.Item
