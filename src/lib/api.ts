@@ -105,64 +105,90 @@ export async function apiSaveBookmark(url: string, workspaceId: string): Promise
 
 /**
  * Search bookmarks via the Cervo API (semantic vector search).
+ * Accepts a single workspaceId or an array (for "all workspaces" mode).
  */
-export async function apiSearchBookmarks(text: string, workspaceId: string, limit = 10): Promise<ApiBookmark[]> {
+export async function apiSearchBookmarks(
+  text: string,
+  workspaceIds: string | string[],
+  limit = 10,
+): Promise<ApiBookmark[]> {
   const config = getApiConfig();
   if (!config) return [];
 
-  try {
-    const params = new URLSearchParams({
-      workspaceId,
-      memberId: config.memberId,
-      text,
-      limit: String(limit),
-    });
+  const ids = Array.isArray(workspaceIds) ? workspaceIds : [workspaceIds];
+  const seen = new Set<string>();
+  const results: ApiBookmark[] = [];
 
-    const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
-      headers: { "X-API-Key": config.apiKey },
-    });
+  await Promise.all(
+    ids.map(async (wsId) => {
+      try {
+        const params = new URLSearchParams({
+          workspaceId: wsId,
+          memberId: config.memberId,
+          text,
+          limit: String(limit),
+        });
 
-    if (!response.ok) return [];
-    return (await response.json()) as ApiBookmark[];
-  } catch {
-    return [];
-  }
+        const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
+          headers: { "X-API-Key": config.apiKey },
+        });
+
+        if (response.ok) {
+          const bookmarks = (await response.json()) as ApiBookmark[];
+          for (const b of bookmarks) {
+            if (!seen.has(b.id)) {
+              seen.add(b.id);
+              results.push(b);
+            }
+          }
+        }
+      } catch {
+        // continue
+      }
+    }),
+  );
+
+  return results;
 }
 
 /**
  * Fetch enriched data for a list of URLs by searching the API.
+ * Accepts a single workspaceId or an array (for "all workspaces" mode).
  */
-export async function apiFetchEnrichedData(urls: string[], workspaceId: string): Promise<ApiBookmark[]> {
+export async function apiFetchEnrichedData(urls: string[], workspaceIds: string | string[]): Promise<ApiBookmark[]> {
   const config = getApiConfig();
   if (!config || urls.length === 0) return [];
 
+  const ids = Array.isArray(workspaceIds) ? workspaceIds : [workspaceIds];
   const results: ApiBookmark[] = [];
   const seen = new Set<string>();
 
   for (const url of urls) {
-    try {
-      const params = new URLSearchParams({
-        workspaceId,
-        memberId: config.memberId,
-        text: url,
-        limit: "5",
-      });
+    for (const wsId of ids) {
+      try {
+        const params = new URLSearchParams({
+          workspaceId: wsId,
+          memberId: config.memberId,
+          text: url,
+          limit: "5",
+        });
 
-      const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
-        headers: { "X-API-Key": config.apiKey },
-      });
+        const response = await fetch(`${config.apiUrl}/bookmarks?${params}`, {
+          headers: { "X-API-Key": config.apiKey },
+        });
 
-      if (response.ok) {
-        const bookmarks = (await response.json()) as ApiBookmark[];
-        for (const b of bookmarks) {
-          if (!seen.has(b.id)) {
-            seen.add(b.id);
-            results.push(b);
+        if (response.ok) {
+          const bookmarks = (await response.json()) as ApiBookmark[];
+          for (const b of bookmarks) {
+            if (!seen.has(b.id)) {
+              seen.add(b.id);
+              results.push(b);
+            }
           }
         }
+      } catch {
+        // continue
       }
-    } catch {
-      // continue with next URL
     }
   }
 

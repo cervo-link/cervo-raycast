@@ -192,6 +192,7 @@ function buildDetailMarkdown(item: DisplayItem): string {
 }
 
 const CREATE_WORKSPACE_VALUE = "__create__";
+const ALL_WORKSPACES_VALUE = "__all__";
 
 function WorkspaceDropdown(props: {
   workspaces: Workspace[];
@@ -217,6 +218,7 @@ function WorkspaceDropdown(props: {
   return (
     <List.Dropdown tooltip="Workspace" storeValue onChange={props.onWorkspaceChange}>
       <List.Dropdown.Section>
+        <List.Dropdown.Item title="All Workspaces" value={ALL_WORKSPACES_VALUE} icon={Icon.Globe} />
         {props.workspaces.map((ws) => (
           <List.Dropdown.Item key={ws.id} title={ws.name} value={ws.id} />
         ))}
@@ -271,6 +273,11 @@ export default function Command() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
   const lastRealWorkspaceId = useRef<string>("");
   const apiConfigured = isApiConfigured();
+
+  // Resolve workspace IDs for API queries (single ID or all IDs)
+  const isAllWorkspaces = selectedWorkspaceId === ALL_WORKSPACES_VALUE;
+  const queryWorkspaceIds = isAllWorkspaces ? workspaces.map((ws) => ws.id) : selectedWorkspaceId;
+  const defaultWorkspaceId = isAllWorkspaces ? workspaces[0]?.id : selectedWorkspaceId;
 
   initDatabase();
 
@@ -334,7 +341,7 @@ export default function Command() {
           await Clipboard.clear();
         }
         if (selectedWorkspaceId) {
-          const apiBookmarkId = await apiSaveBookmark(result.url, selectedWorkspaceId);
+          const apiBookmarkId = await apiSaveBookmark(result.url, defaultWorkspaceId);
           if (apiBookmarkId) {
             enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
           }
@@ -357,7 +364,7 @@ export default function Command() {
       if (needsUpdate.length === 0) return false;
 
       const urls = needsUpdate.map((e) => e.url);
-      const apiBookmarks = await apiFetchEnrichedData(urls, selectedWorkspaceId);
+      const apiBookmarks = await apiFetchEnrichedData(urls, queryWorkspaceIds);
       const apiByUrl = new Map(apiBookmarks.map((b) => [b.url, b]));
 
       let updated = false;
@@ -418,7 +425,7 @@ export default function Command() {
     let cancelled = false;
     setApiLoading(true);
 
-    apiSearchBookmarks(searchText, selectedWorkspaceId).then((bookmarks) => {
+    apiSearchBookmarks(searchText, queryWorkspaceIds).then((bookmarks) => {
       if (!cancelled) {
         setApiResults(bookmarks.map(apiToDisplayItem));
         setApiLoading(false);
@@ -439,7 +446,7 @@ export default function Command() {
         await Clipboard.clear();
       }
       if (selectedWorkspaceId) {
-        const apiBookmarkId = await apiSaveBookmark(result.url, selectedWorkspaceId);
+        const apiBookmarkId = await apiSaveBookmark(result.url, defaultWorkspaceId);
         if (apiBookmarkId) {
           enrichUrl(result.url, undefined, undefined, undefined, "submitted", apiBookmarkId);
         }
@@ -453,14 +460,14 @@ export default function Command() {
   }
 
   async function handleRetry(item: DisplayItem) {
-    if (!selectedWorkspaceId) return;
+    if (!defaultWorkspaceId) return;
     await showToast({ style: Toast.Style.Animated, title: "Reprocessing...", message: item.url });
     if (item.localId) {
       enrichUrl(item.url, undefined, undefined, undefined, "processing");
     }
     revalidate();
 
-    const success = await apiRetryBookmark(item.url, selectedWorkspaceId);
+    const success = await apiRetryBookmark(item.url, defaultWorkspaceId);
     if (success) {
       await showToast({ style: Toast.Style.Success, title: "Reprocessing started", message: item.url });
     } else {
@@ -484,7 +491,7 @@ export default function Command() {
       deleteUrl(item.localId);
       await showToast({ style: Toast.Style.Success, title: "Deleted", message: item.url });
       if (selectedWorkspaceId) {
-        apiDeleteBookmark(item.url, selectedWorkspaceId);
+        apiDeleteBookmark(item.url, defaultWorkspaceId);
       }
       revalidate();
     }
