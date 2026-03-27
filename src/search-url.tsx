@@ -172,6 +172,18 @@ function buildDetailMarkdown(item: DisplayItem): string {
     parts.push(`\n**Matched because:** ${item.matchedBecause}`);
   }
 
+  if (item.status === "failed") {
+    parts.push(
+      `\n---\n\n⚠️ **Processing failed**\n\nThis URL could not be processed by the API — it may be unreachable, blocked, or took too long to respond. You can retry with **Cmd+R**.`,
+    );
+  }
+
+  if (item.status === "processing") {
+    parts.push(
+      `\n---\n\n⏳ **Processing...**\n\nThe API is scraping and summarizing this page. Title, description, and tags will appear once ready.`,
+    );
+  }
+
   return parts.join("\n");
 }
 
@@ -405,6 +417,20 @@ export default function Command() {
                   <List.Item.Detail.Metadata>
                     <List.Item.Detail.Metadata.Link title="URL" target={item.url} text={item.url} />
                     <List.Item.Detail.Metadata.Label title="Saved" text={item.timeText} />
+                    {item.status === "failed" && (
+                      <List.Item.Detail.Metadata.Label
+                        title="Status"
+                        text="Failed — Cmd+R to retry"
+                        icon={{ source: Icon.CircleFilled, tintColor: Color.Red }}
+                      />
+                    )}
+                    {item.status === "processing" && (
+                      <List.Item.Detail.Metadata.Label
+                        title="Status"
+                        text="Processing..."
+                        icon={{ source: Icon.CircleFilled, tintColor: Color.Yellow }}
+                      />
+                    )}
                     {item.tags && item.tags.length > 0 && (
                       <List.Item.Detail.Metadata.TagList title="Tags">
                         {item.tags.map((tag) => (
