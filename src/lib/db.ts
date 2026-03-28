@@ -152,6 +152,15 @@ export function migrateOrphanedUrls(workspaceId: string): void {
   runSQL(`UPDATE urls SET workspace_id = '${escaped}' WHERE workspace_id IS NULL OR workspace_id = ''`);
 }
 
+/**
+ * Delete all URLs belonging to a workspace.
+ */
+export function deleteWorkspaceUrls(workspaceId: string): void {
+  initDatabase();
+  const escaped = workspaceId.replace(/'/g, "''");
+  runSQL(`DELETE FROM urls WHERE workspace_id = '${escaped}'`);
+}
+
 export function deleteUrl(id: number): void {
   initDatabase();
   runSQL(`DELETE FROM urls WHERE id = ${id}`);

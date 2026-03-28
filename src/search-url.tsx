@@ -22,6 +22,7 @@ import {
   getDbPath,
   initDatabase,
   deleteUrl,
+  deleteWorkspaceUrls,
   saveUrl,
   enrichUrl,
   buildSearchQuery,
@@ -204,9 +205,11 @@ function buildDetailMarkdown(item: DisplayItem): string {
 }
 
 const CREATE_WORKSPACE_VALUE = "__create__";
+const DELETE_WORKSPACE_VALUE = "__delete__";
 const ALL_WORKSPACES_VALUE = "__all__";
 
 const WORKSPACE_STORAGE_KEY = "cervo-selected-workspace";
+const HIDDEN_WORKSPACES_KEY = "cervo-hidden-workspaces";
 
 function WorkspaceDropdown(props: {
   workspaces: Workspace[];
@@ -215,6 +218,9 @@ function WorkspaceDropdown(props: {
   selectedValue: string;
   onWorkspaceChange: (workspaceId: string) => void;
 }) {
+  const canDelete =
+    props.workspaces.length >= 2 && props.selectedValue !== ALL_WORKSPACES_VALUE && props.selectedValue !== "";
+
   return (
     <List.Dropdown
       tooltip="Workspace"
@@ -236,6 +242,9 @@ function WorkspaceDropdown(props: {
           </List.Dropdown.Section>
           <List.Dropdown.Section>
             <List.Dropdown.Item title="Create Workspace" value={CREATE_WORKSPACE_VALUE} icon={Icon.PlusCircle} />
+            {canDelete && (
+              <List.Dropdown.Item title="Delete Workspace" value={DELETE_WORKSPACE_VALUE} icon={Icon.Trash} />
+            )}
           </List.Dropdown.Section>
         </>
       )}
@@ -297,6 +306,41 @@ export default function Command() {
 
   initDatabase();
 
+  async function handleDeleteWorkspace() {
+    const wsToDelete = selectedWorkspaceId;
+    const wsName = workspaces.find((ws) => ws.id === wsToDelete)?.name || "this workspace";
+
+    const confirmed = await confirmAlert({
+      title: `Delete "${wsName}"?`,
+      message: "All links in this workspace will be removed.",
+      primaryAction: {
+        title: "Delete",
+        style: Alert.ActionStyle.Destructive,
+      },
+    });
+
+    if (!confirmed) return;
+
+    // Delete local URLs for this workspace
+    deleteWorkspaceUrls(wsToDelete);
+
+    // Hide workspace from dropdown
+    const hiddenRaw = await LocalStorage.getItem<string>(HIDDEN_WORKSPACES_KEY);
+    const hidden: string[] = hiddenRaw ? JSON.parse(hiddenRaw) : [];
+    hidden.push(wsToDelete);
+    await LocalStorage.setItem(HIDDEN_WORKSPACES_KEY, JSON.stringify(hidden));
+
+    // Remove from state and switch to All Workspaces
+    setWorkspaces((prev) => prev.filter((ws) => ws.id !== wsToDelete));
+    setSelectedWorkspaceId(ALL_WORKSPACES_VALUE);
+    lastRealWorkspaceId.current = ALL_WORKSPACES_VALUE;
+    await LocalStorage.setItem(WORKSPACE_STORAGE_KEY, ALL_WORKSPACES_VALUE);
+    setApiResults([]);
+    pollCount.current = 0;
+
+    await showToast({ style: Toast.Style.Success, title: "Workspace deleted", message: wsName });
+  }
+
   function handleWorkspaceChange(workspaceId: string) {
     if (workspaceId === CREATE_WORKSPACE_VALUE) {
       push(
@@ -319,11 +363,14 @@ export default function Command() {
       if (lastRealWorkspaceId.current) {
         setSelectedWorkspaceId(lastRealWorkspaceId.current);
       }
+    } else if (workspaceId === DELETE_WORKSPACE_VALUE) {
+      // Restore dropdown to current workspace while confirming
+      setSelectedWorkspaceId(lastRealWorkspaceId.current);
+      handleDeleteWorkspace();
     } else {
       setSelectedWorkspaceId(workspaceId);
       LocalStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
       lastRealWorkspaceId.current = workspaceId;
-      // Reset state so enrichment and search re-run for new workspace
       setApiResults([]);
       pollCount.current = 0;
     }
@@ -334,19 +381,22 @@ export default function Command() {
   useEffect(() => {
     if (!apiConfigured) return;
     (async () => {
-      const [ws, savedWorkspace] = await Promise.all([
+      const [ws, savedWorkspace, hiddenRaw] = await Promise.all([
         apiFetchWorkspaces(),
         LocalStorage.getItem<string>(WORKSPACE_STORAGE_KEY),
+        LocalStorage.getItem<string>(HIDDEN_WORKSPACES_KEY),
       ]);
-      setWorkspaces(ws);
+      const hidden: string[] = hiddenRaw ? JSON.parse(hiddenRaw) : [];
+      const visibleWs = ws.filter((w) => !hidden.includes(w.id));
+      setWorkspaces(visibleWs);
       if (savedWorkspace) {
         setSelectedWorkspaceId(savedWorkspace);
         lastRealWorkspaceId.current = savedWorkspace;
       }
       setWorkspaceLoaded(true);
-      if (!orphansMigrated.current && ws.length > 0) {
+      if (!orphansMigrated.current && visibleWs.length > 0) {
         orphansMigrated.current = true;
-        migrateOrphanedUrls(ws[0].id);
+        migrateOrphanedUrls(visibleWs[0].id);
       }
     })();
   }, []);
